@@ -1,0 +1,241 @@
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Input;
+using Avalonia.Interactivity;
+using Avalonia.Threading;
+using Avalonia.VisualTree;
+using Sextant.ViewModels;
+using System.ComponentModel;
+
+namespace Sextant.Views;
+
+public partial class RepositoryView : UserControl
+{
+    private readonly record struct FileAnchor(bool Header, string Key, bool FromStaged, double Top);
+
+    private bool _widthsApplied;
+    private bool _scrollHooked;
+    private RepositoryViewModel? _scrollVm;
+
+    public RepositoryView()
+    {
+        InitializeComponent();
+    }
+
+    protected override void OnLoaded(RoutedEventArgs e)
+    {
+        base.OnLoaded(e);
+        if (DataContext is RepositoryViewModel vm && !_widthsApplied)
+        {
+            _widthsApplied = true;
+            if (vm.LocationsWidth >= 140)
+                LocationsColumn.Width = new GridLength(vm.LocationsWidth);
+            if (vm.GraphWidth >= 240)
+                GraphColumn.Width = new GridLength(vm.GraphWidth);
+            if (vm.FilesHeight >= 80)
+                FilesRow.Height = new GridLength(vm.FilesHeight);
+        }
+
+        AttachGraphScroll();
+        GraphList.TemplateApplied += (_, _) => AttachGraphScroll();
+        HookFileScroll();
+    }
+
+    protected override void OnDataContextChanged(EventArgs e)
+    {
+        base.OnDataContextChanged(e);
+        if (IsLoaded)
+            HookFileScroll();
+    }
+
+    protected override void OnUnloaded(RoutedEventArgs e)
+    {
+        UnhookFileScroll();
+        base.OnUnloaded(e);
+    }
+
+    private ColumnDefinition LocationsColumn => Columns.ColumnDefinitions[0];
+
+    private ColumnDefinition GraphColumn => Columns.ColumnDefinitions[2];
+
+    private RowDefinition FilesRow => Details.RowDefinitions[1];
+
+    public void ReadWidths(MainViewModel vm)
+    {
+        if (LocationsColumn.Width.GridUnitType == GridUnitType.Pixel && LocationsColumn.Width.Value >= 140)
+            vm.LocationsWidth = LocationsColumn.Width.Value;
+        if (GraphColumn.Width.GridUnitType == GridUnitType.Pixel && GraphColumn.Width.Value >= 240)
+            vm.GraphWidth = GraphColumn.Width.Value;
+        if (FilesRow.Height.GridUnitType == GridUnitType.Pixel && FilesRow.Height.Value >= 80)
+            vm.FilesHeight = FilesRow.Height.Value;
+    }
+
+    private void AttachGraphScroll()
+    {
+        if (_scrollHooked)
+            return;
+        var scroll = GraphList.GetVisualDescendants().OfType<ScrollViewer>().FirstOrDefault();
+        if (scroll is null)
+            return;
+        _scrollHooked = true;
+        scroll.ScrollChanged += OnGraphScroll;
+    }
+
+    private void HookFileScroll()
+    {
+        UnhookFileScroll();
+        if (DataContext is not RepositoryViewModel vm)
+            return;
+        _scrollVm = vm;
+        vm.PreserveFileScroll += OnPreserveFileScroll;
+    }
+
+    private void UnhookFileScroll()
+    {
+        if (_scrollVm is null)
+            return;
+        _scrollVm.PreserveFileScroll -= OnPreserveFileScroll;
+        _scrollVm = null;
+    }
+
+    private void OnPreserveFileScroll(Action update)
+    {
+        var scroll = FileScroll();
+        var anchors = CaptureFileAnchors(scroll);
+        var offset = scroll?.Offset ?? default;
+        var restoreAutoScroll = FileList.AutoScrollToSelectedItem;
+        FileList.AutoScrollToSelectedItem = false;
+        try
+        {
+            update();
+        }
+        finally
+        {
+            Dispatcher.UIThread.Post(
+                () => FinishFileScroll(anchors, offset, restoreAutoScroll, pass: 0),
+                DispatcherPriority.Loaded);
+        }
+    }
+
+    private void FinishFileScroll(List<FileAnchor> anchors, Vector offset, bool restoreAutoScroll, int pass)
+    {
+        var scroll = FileScroll();
+        if (scroll is null)
+        {
+            FileList.AutoScrollToSelectedItem = restoreAutoScroll;
+            return;
+        }
+
+        if (pass == 0)
+        {
+            scroll.Offset = offset;
+            Dispatcher.UIThread.Post(
+                () => FinishFileScroll(anchors, offset, restoreAutoScroll, pass: 1),
+                DispatcherPriority.Loaded);
+            return;
+        }
+
+        var corrected = scroll.Offset;
+        foreach (var anchor in anchors)
+        {
+            if (FindContainer(anchor) is not { } container)
+                continue;
+            var point = container.TranslatePoint(default, scroll);
+            if (point is null)
+                continue;
+            var delta = point.Value.Y - anchor.Top;
+            corrected = new Vector(scroll.Offset.X, Math.Max(0, scroll.Offset.Y + delta));
+            if (Math.Abs(delta) > 0.5)
+                scroll.Offset = corrected;
+            else
+                corrected = scroll.Offset;
+            break;
+        }
+
+        FileList.AutoScrollToSelectedItem = restoreAutoScroll;
+        var hold = corrected;
+        Dispatcher.UIThread.Post(() =>
+        {
+            var later = FileScroll();
+            if (later is not null)
+                later.Offset = hold;
+        }, DispatcherPriority.Background);
+    }
+
+    private List<FileAnchor> CaptureFileAnchors(ScrollViewer? scroll)
+    {
+        var anchors = new List<FileAnchor>();
+        if (scroll is null)
+            return anchors;
+        foreach (var container in FileList.GetRealizedContainers().OfType<Control>())
+        {
+            if (FileList.ItemFromContainer(container) is not FileRowViewModel row)
+                continue;
+            var point = container.TranslatePoint(default, scroll);
+            if (point is null)
+                continue;
+            var top = point.Value.Y;
+            if (top + container.Bounds.Height <= 0 || top >= scroll.Bounds.Height)
+                continue;
+            anchors.Add(new FileAnchor(row.IsHeader, row.IsHeader ? row.Label : row.Path, row.FromStagedList, top));
+        }
+
+        anchors.Sort(static (left, right) => left.Top.CompareTo(right.Top));
+        return anchors;
+    }
+
+    private Control? FindContainer(FileAnchor anchor)
+    {
+        foreach (var container in FileList.GetRealizedContainers().OfType<Control>())
+        {
+            if (FileList.ItemFromContainer(container) is not FileRowViewModel row)
+                continue;
+            if (row.IsHeader)
+            {
+                if (anchor.Header && row.Label == anchor.Key)
+                    return container;
+                continue;
+            }
+
+            if (!anchor.Header && row.Path == anchor.Key && row.FromStagedList == anchor.FromStaged)
+                return container;
+        }
+
+        return null;
+    }
+
+    private ScrollViewer? FileScroll() =>
+        FileList.GetVisualDescendants().OfType<ScrollViewer>().FirstOrDefault();
+
+    private void OnGraphScroll(object? sender, ScrollChangedEventArgs e)
+    {
+        if (sender is not ScrollViewer scroll || scroll.Extent.Height <= scroll.Viewport.Height)
+            return;
+        if (scroll.Offset.Y + scroll.Viewport.Height < scroll.Extent.Height - 48)
+            return;
+        if (DataContext is RepositoryViewModel vm)
+            _ = vm.LoadMoreFromScrollAsync();
+    }
+
+    private void OnCommitKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter && (e.KeyModifiers.HasFlag(KeyModifiers.Control) || e.KeyModifiers.HasFlag(KeyModifiers.Meta))
+            && DataContext is RepositoryViewModel vm)
+        {
+            vm.CommitCommand.Execute(null);
+            e.Handled = true;
+        }
+    }
+
+    private void OnLocationDoubleTapped(object? sender, TappedEventArgs e)
+    {
+        if (DataContext is RepositoryViewModel vm && vm.SelectedLocation is { } item)
+            vm.ActivateLocation(item);
+    }
+
+    private void OnMenuOpening(object? sender, CancelEventArgs e)
+    {
+        if (sender is ContextMenu menu && menu.PlacementTarget is Control target)
+            menu.DataContext = target.DataContext;
+    }
+}

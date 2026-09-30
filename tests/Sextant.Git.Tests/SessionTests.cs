@@ -1,0 +1,247 @@
+namespace Sextant.Git.Tests;
+
+public class SessionTests
+{
+    [Fact]
+    public async Task Open_unborn_repository_is_empty_history()
+    {
+        using var repo = new TempRepo();
+        await using var session = await Open(repo);
+        var state = session.Snapshot();
+        Assert.True(state.Branch.Unborn);
+        Assert.Empty(state.Commits);
+        Assert.DoesNotContain(state.Commands, command => command.ExitCode != 0);
+    }
+
+    [Fact]
+    public async Task Open_orphan_branch_keeps_commits_from_other_branches()
+    {
+        using var repo = new TempRepo();
+        repo.WriteFile("a.txt", "one\n");
+        repo.CommitAll("first");
+        repo.Run("switch", "--orphan", "scratch");
+        await using var session = await Open(repo);
+        var state = session.Snapshot();
+        Assert.True(state.Branch.Unborn);
+        Assert.Contains(state.Commits, row => row.Commit.Subject == "first");
+    }
+
+    [Fact]
+    public async Task Unstage_before_the_first_commit_keeps_the_worktree_file()
+    {
+        using var repo = new TempRepo();
+        repo.WriteFile("a.txt", "hello\n");
+        await using var session = await Open(repo);
+        await session.StageFileAsync("a.txt", CancellationToken.None);
+        repo.WriteFile("a.txt", "hello\nworld\n");
+        await session.UnstageFileAsync("a.txt", CancellationToken.None);
+
+        var path = Path.Combine(repo.Directory, "a.txt");
+        Assert.Contains("world", File.ReadAllText(path), StringComparison.Ordinal);
+        var state = session.Snapshot();
+        Assert.Contains(state.Entries, entry => entry.Path == "a.txt" && entry.Kind == ChangeKind.Untracked);
+        Assert.DoesNotContain(state.Entries, entry => entry.Staged);
+        Assert.DoesNotContain(state.Commands, command => command.ExitCode != 0);
+    }
+
+    [Fact]
+    public async Task Discard_before_the_first_commit_removes_the_new_file()
+    {
+        using var repo = new TempRepo();
+        repo.WriteFile("a.txt", "hello\n");
+        await using var session = await Open(repo);
+        await session.StageFileAsync("a.txt", CancellationToken.None);
+        await session.DiscardTrackedAsync("a.txt", CancellationToken.None);
+
+        Assert.False(File.Exists(Path.Combine(repo.Directory, "a.txt")));
+        Assert.DoesNotContain(session.Snapshot().Entries, entry => entry.Path == "a.txt");
+    }
+
+    [Fact]
+    public async Task Untracked_diff_shows_the_new_file()
+    {
+        using var repo = new TempRepo();
+        repo.WriteFile("a.txt", "hello\n");
+        await using var session = await Open(repo);
+        var diff = await session.WorkingDiffAsync("a.txt", staged: false, untracked: true, allowLarge: true, CancellationToken.None);
+        Assert.NotNull(diff);
+        Assert.True(diff.IsNewFile);
+        Assert.Contains(diff.Hunks.SelectMany(hunk => hunk.Lines), line => line.Text == "hello");
+    }
+
+    [Fact]
+    public async Task Unstage_after_a_commit_leaves_the_worktree_edit()
+    {
+        using var repo = new TempRepo();
+        repo.WriteFile("a.txt", "one\n");
+        repo.CommitAll("first");
+        repo.WriteFile("a.txt", "two\n");
+        await using var session = await Open(repo);
+        await session.StageFileAsync("a.txt", CancellationToken.None);
+        await session.UnstageFileAsync("a.txt", CancellationToken.None);
+
+        Assert.Contains("two", File.ReadAllText(Path.Combine(repo.Directory, "a.txt")), StringComparison.Ordinal);
+        var state = session.Snapshot();
+        Assert.Contains(state.Entries, entry => entry.Path == "a.txt" && entry.Unstaged && !entry.Staged);
+    }
+
+    [Fact]
+    public async Task Open_shows_the_working_copy_and_history()
+    {
+        using var repo = new TempRepo();
+        repo.WriteFile("a.txt", "one\n");
+        repo.CommitAll("first");
+        repo.WriteFile("a.txt", "two\n");
+        await using var session = await Open(repo);
+        var state = session.Snapshot();
+        Assert.Equal(repo.CurrentBranch(), state.Branch.HeadName);
+        Assert.Single(state.Commits);
+        Assert.Contains(state.Entries, entry => entry.Path == "a.txt" && entry.Unstaged);
+    }
+
+    [Fact]
+    public async Task Commit_adds_a_history_row()
+    {
+        using var repo = new TempRepo();
+        repo.WriteFile("a.txt", "one\n");
+        repo.CommitAll("first");
+        repo.WriteFile("a.txt", "two\n");
+        await using var session = await Open(repo);
+        await session.StageFileAsync("a.txt", CancellationToken.None);
+        await session.CommitAsync("second\n", CancellationToken.None);
+        var state = session.Snapshot();
+        Assert.Equal("second", state.Commits[0].Commit.Subject);
+        Assert.Equal(2, state.Commits.Count);
+        Assert.Empty(state.Entries);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Staging_the_middle_hunk_leaves_the_other_two(bool autocrlf)
+    {
+        using var repo = new TempRepo();
+        repo.Run("config", "core.autocrlf", autocrlf ? "true" : "false");
+        var lines = Enumerable.Range(0, 40).Select(index => $"line {index}").ToArray();
+        repo.WriteFile("a.txt", string.Join('\n', lines) + "\n");
+        repo.CommitAll("base");
+        lines[2] = "changed-a";
+        lines[18] = "changed-b";
+        lines[34] = "changed-c";
+        repo.WriteFile("a.txt", string.Join('\n', lines) + "\n");
+
+        await using var session = await Open(repo);
+        var diff = await session.WorkingDiffAsync("a.txt", staged: false, untracked: false, allowLarge: true, CancellationToken.None);
+        Assert.NotNull(diff);
+        Assert.Equal(3, diff.Hunks.Count);
+        await session.ApplyHunkAsync(diff.RawPatch, 1, reverse: false, CancellationToken.None);
+
+        var staged = repo.RunCapture("diff", "--cached", "--", "a.txt");
+        Assert.Contains("changed-b", staged, StringComparison.Ordinal);
+        Assert.DoesNotContain("changed-a", staged, StringComparison.Ordinal);
+        Assert.DoesNotContain("changed-c", staged, StringComparison.Ordinal);
+
+        var after = await session.WorkingDiffAsync("a.txt", staged: true, untracked: false, allowLarge: true, CancellationToken.None);
+        Assert.NotNull(after);
+        await session.ApplyHunkAsync(after.RawPatch, 0, reverse: true, CancellationToken.None);
+        var cleared = repo.RunCapture("diff", "--cached");
+        Assert.DoesNotContain("changed-b", cleared, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Conflicted_merge_can_be_aborted()
+    {
+        using var repo = new TempRepo();
+        repo.WriteFile("a.txt", "base\n");
+        repo.CommitAll("base");
+        var branch = repo.CurrentBranch();
+        repo.Run("switch", "-c", "other");
+        repo.WriteFile("a.txt", "other\n");
+        repo.CommitAll("other");
+        repo.Run("switch", branch);
+        repo.WriteFile("a.txt", "main\n");
+        repo.CommitAll("main");
+
+        await using var session = await Open(repo);
+        await Assert.ThrowsAsync<GitCommandFailedException>(() => session.MergeAsync("other", CancellationToken.None));
+        var conflicted = session.Snapshot();
+        Assert.True(conflicted.MergeInProgress);
+        Assert.Contains(conflicted.Entries, entry => entry.Kind == ChangeKind.Unmerged && entry.Path == "a.txt");
+
+        await session.AbortMergeAsync(CancellationToken.None);
+        var cleared = session.Snapshot();
+        Assert.False(cleared.MergeInProgress);
+        Assert.DoesNotContain(cleared.Entries, entry => entry.Kind == ChangeKind.Unmerged);
+    }
+
+    [Fact]
+    public async Task Push_and_pull_against_a_local_remote()
+    {
+        using var origin = new TempRepo();
+        origin.WriteFile("a.txt", "one\n");
+        origin.CommitAll("first");
+        var bare = Path.Combine(Path.GetTempPath(), "sextant-bare-" + Guid.NewGuid().ToString("N"));
+        var clone = Path.Combine(Path.GetTempPath(), "sextant-clone-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            origin.Run("clone", "--bare", origin.Directory, bare);
+            var runner = new GitProcessRunner();
+            await RepositoryAdmin.CloneAsync(runner, origin.Git, bare, clone, null, CancellationToken.None);
+            await using var session = await RepositorySession.OpenAsync(runner, origin.Git, clone, CancellationToken.None);
+            var branch = session.Snapshot().Branch.HeadName!;
+            using (var writer = new StreamWriter(Path.Combine(clone, "a.txt"), append: true))
+                writer.Write("two\n");
+            await session.StageFileAsync("a.txt", CancellationToken.None);
+            await session.CommitAsync("second\n", CancellationToken.None);
+            await session.PushAsync(null, CancellationToken.None);
+
+            origin.Run("remote", "add", "origin", bare);
+            origin.Run("fetch", "origin");
+            origin.Run("merge", "--no-edit", "origin/" + branch);
+            Assert.Contains("two", File.ReadAllText(Path.Combine(origin.Directory, "a.txt")), StringComparison.Ordinal);
+        }
+        finally
+        {
+            TryDelete(bare);
+            TryDelete(clone);
+        }
+    }
+
+    [Fact]
+    public async Task Cancelling_the_runner_kills_the_process()
+    {
+        var runner = new GitProcessRunner();
+        using var cts = new CancellationTokenSource();
+        var executable = OperatingSystem.IsWindows() ? "ping" : "sleep";
+        var arguments = OperatingSystem.IsWindows()
+            ? new[] { "-n", "30", "127.0.0.1" }
+            : new[] { "30" };
+        var started = DateTime.UtcNow;
+        var task = runner.RunAsync(new GitRequest { Executable = executable, Arguments = arguments }, cts.Token);
+        await Task.Delay(200);
+        cts.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => task);
+        Assert.True(DateTime.UtcNow - started < TimeSpan.FromSeconds(10));
+    }
+
+    private static Task<RepositorySession> Open(TempRepo repo) =>
+        RepositorySession.OpenAsync(new GitProcessRunner(), repo.Git, repo.Directory, CancellationToken.None);
+
+    private static void TryDelete(string path)
+    {
+        try
+        {
+            if (!Directory.Exists(path))
+                return;
+            foreach (var file in Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories))
+                File.SetAttributes(file, FileAttributes.Normal);
+            Directory.Delete(path, recursive: true);
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
+    }
+}

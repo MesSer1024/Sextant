@@ -1,0 +1,125 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Sextant.ViewModels"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="1200" d:DesignHeight="760"
+        x:Class="Sextant.Views.MainWindow"
+        x:DataType="vm:MainViewModel"
+        Icon="/Assets/avalonia-logo.ico"
+        Title="{Binding TitleText}"
+        Width="1200" Height="760"
+        MinWidth="880" MinHeight="520">
+
+    <Grid RowDefinitions="Auto,*,Auto">
+        <Border Grid.Row="0" IsVisible="{Binding HasGitProblem}" Padding="12,8" Background="#33C42B1C">
+            <DockPanel>
+                <Button DockPanel.Dock="Right" Content="Locate git" Command="{Binding LocateGitCommand}" Margin="12,0,0,0"/>
+                <TextBlock Text="{Binding GitProblem}" TextWrapping="Wrap" VerticalAlignment="Center"/>
+            </DockPanel>
+        </Border>
+
+        <Grid x:Name="Root" Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="220" MinWidth="160" MaxWidth="420"/>
+                <ColumnDefinition Width="4"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <DockPanel Grid.Column="0" Margin="8,8,4,8">
+                <WrapPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                    <Button Content="Open" Command="{Binding OpenFolderCommand}" IsEnabled="{Binding CanUseGit}" Margin="0,0,6,6"/>
+                    <Button Content="Clone" Command="{Binding CloneCommand}" IsEnabled="{Binding CanUseGit}" Margin="0,0,6,6"/>
+                    <Button Content="Init" Command="{Binding InitCommand}" IsEnabled="{Binding CanUseGit}" Margin="0,0,6,6"/>
+                </WrapPanel>
+                <ListBox ItemsSource="{Binding Pins}" SelectedItem="{Binding SelectedPin}">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate x:DataType="vm:PinViewModel">
+                            <Border ToolTip.Tip="{Binding Path}">
+                                <Border.ContextMenu>
+                                    <ContextMenu Opening="OnMenuOpening">
+                                        <MenuItem Header="Open" Command="{Binding OpenCommand}"/>
+                                        <MenuItem Header="Unpin" Command="{Binding UnpinCommand}"/>
+                                    </ContextMenu>
+                                </Border.ContextMenu>
+                                <StackPanel Spacing="1">
+                                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Text="{Binding Badge}" FontSize="11" Opacity="0.7" TextTrimming="CharacterEllipsis" TextWrapping="Wrap"/>
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </DockPanel>
+
+            <GridSplitter Grid.Column="1" ResizeDirection="Columns"/>
+
+            <Grid Grid.Column="2" RowDefinitions="Auto,*">
+                <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                    <ItemsControl ItemsSource="{Binding Tabs}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <StackPanel Orientation="Horizontal"/>
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:RepositoryViewModel">
+                                <Panel Margin="0,4,4,0">
+                                    <Border Background="{DynamicResource MaterialDesignSelection}" IsVisible="{Binding IsActive}" CornerRadius="4"/>
+                                    <Border Padding="8,4">
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <Ellipse Width="6" Height="6" Fill="#D04040" IsVisible="{Binding IsConflicted}" VerticalAlignment="Center"/>
+                                            <Ellipse Width="6" Height="6" Fill="#E0A100" IsVisible="{Binding ShowDirtyDot}" VerticalAlignment="Center"/>
+                                            <Button Content="{Binding Title}" Command="{Binding ActivateTabCommand}" Background="Transparent" BorderThickness="0" Padding="0"/>
+                                            <Button Classes="flat" Content="×" Command="{Binding CloseTabCommand}" Padding="4,0" MinWidth="0"/>
+                                        </StackPanel>
+                                    </Border>
+                                </Panel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+
+                <Panel Grid.Row="1">
+                    <ContentControl Content="{Binding ActiveTab}" IsVisible="{Binding HasActiveTab}"/>
+                    <StackPanel IsVisible="{Binding ShowEmpty}" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12">
+                        <TextBlock Text="Open a repository to start." HorizontalAlignment="Center" Opacity="0.75"/>
+                        <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
+                            <Button Content="Open" Command="{Binding OpenFolderCommand}" IsEnabled="{Binding CanUseGit}"/>
+                            <Button Content="Clone" Command="{Binding CloneCommand}" IsEnabled="{Binding CanUseGit}"/>
+                            <Button Content="Init" Command="{Binding InitCommand}" IsEnabled="{Binding CanUseGit}"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Panel>
+            </Grid>
+        </Grid>
+
+        <Border Grid.Row="2" Padding="12,4" IsVisible="{Binding HasStatusText}">
+            <TextBlock Text="{Binding StatusText}" TextWrapping="Wrap" Opacity="0.8"/>
+        </Border>
+
+        <Panel Grid.Row="1" IsVisible="{Binding PaletteOpen}" Background="#66000000" PointerPressed="OnPaletteBackdrop">
+            <Border Width="520" MaxHeight="420" Margin="0,72,0,0"
+                    HorizontalAlignment="Center" VerticalAlignment="Top"
+                    Padding="8" CornerRadius="6"
+                    Background="{DynamicResource MaterialDesignCardBackground}"
+                    BorderBrush="{DynamicResource MaterialDesignDivider}"
+                    BorderThickness="1"
+                    PointerPressed="OnPaletteCardPressed">
+                <DockPanel>
+                    <TextBox x:Name="PaletteBox" DockPanel.Dock="Top" Margin="0,0,0,8"
+                             Text="{Binding PaletteQuery}" PlaceholderText="Command"
+                             KeyDown="OnPaletteKeyDown"/>
+                    <ListBox x:Name="PaletteList" ItemsSource="{Binding PaletteMatches}" SelectedItem="{Binding SelectedPalette}"
+                             DoubleTapped="OnPaletteChosen">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="vm:PaletteItem">
+                                <TextBlock Text="{Binding Title}" Margin="2,1"/>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </DockPanel>
+            </Border>
+        </Panel>
+    </Grid>
+</Window>

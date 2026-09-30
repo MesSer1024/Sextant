@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Sextant.csproj" />
+    <Project Path="src/Sextant.Git/Sextant.Git.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Sextant.Git.Tests/Sextant.Git.Tests.csproj" />
+  </Folder>
+</Solution>
