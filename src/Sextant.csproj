@@ -5,6 +5,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\sextant.ico</ApplicationIcon>
     <DefaultItemExcludes>$(DefaultItemExcludes);Sextant.Git/**</DefaultItemExcludes>
   </PropertyGroup>
 

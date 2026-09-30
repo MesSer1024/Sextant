@@ -6,7 +6,7 @@
         mc:Ignorable="d" d:DesignWidth="1200" d:DesignHeight="760"
         x:Class="Sextant.Views.MainWindow"
         x:DataType="vm:MainViewModel"
-        Icon="/Assets/avalonia-logo.ico"
+        Icon="/Assets/sextant.png"
         Title="{Binding TitleText}"
         Width="1200" Height="760"
         MinWidth="880" MinHeight="520">
