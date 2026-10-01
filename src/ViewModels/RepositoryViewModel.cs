@@ -171,18 +171,6 @@ public partial class RepositoryViewModel : ViewModelBase
 
     public bool CanRunCommands => !IsBusy;
 
-    public bool CanCheckoutLocation => SelectedLocation?.ShowCheckout == true;
-
-    public bool CanMergeLocation => SelectedLocation?.ShowMerge == true;
-
-    public bool CanRebaseLocation => SelectedLocation?.ShowRebase == true;
-
-    public bool CanDeleteLocation => SelectedLocation?.ShowDelete == true;
-
-    public bool CanUpstreamLocation => SelectedLocation?.ShowSetUpstream == true;
-
-    public bool CanRevealLocation => SelectedLocation?.ShowReveal == true;
-
     public bool ShowDirtyDot => IsDirty && !IsConflicted;
 
     public Task EnsureLoadedAsync() => _load ??= LoadCoreAsync();
@@ -405,62 +393,6 @@ public partial class RepositoryViewModel : ViewModelBase
             await _host.Dialogs.CopyAsync(Banner);
     }
 
-    [RelayCommand]
-    private Task CheckoutSelected()
-    {
-        if (SelectedLocation?.ShowCheckout == true)
-            SelectedLocation.CheckoutCommand.Execute(null);
-        return Task.CompletedTask;
-    }
-
-    [RelayCommand]
-    private Task MergeSelected()
-    {
-        if (SelectedLocation?.ShowMerge == true)
-            SelectedLocation.MergeCommand.Execute(null);
-        return Task.CompletedTask;
-    }
-
-    [RelayCommand]
-    private Task RebaseSelected()
-    {
-        if (SelectedLocation?.ShowRebase == true)
-            SelectedLocation.RebaseCommand.Execute(null);
-        return Task.CompletedTask;
-    }
-
-    [RelayCommand]
-    private Task DeleteSelected()
-    {
-        if (SelectedLocation?.ShowDelete == true)
-            SelectedLocation.DeleteCommand.Execute(null);
-        return Task.CompletedTask;
-    }
-
-    [RelayCommand]
-    private Task UpstreamSelected()
-    {
-        if (SelectedLocation?.ShowSetUpstream == true)
-            SelectedLocation.SetUpstreamCommand.Execute(null);
-        return Task.CompletedTask;
-    }
-
-    [RelayCommand]
-    private Task RevealSelected()
-    {
-        if (SelectedLocation?.ShowReveal == true)
-            SelectedLocation.RevealCommand.Execute(null);
-        return Task.CompletedTask;
-    }
-
-    [RelayCommand]
-    private Task OpenSelected()
-    {
-        if (SelectedLocation?.ShowOpen == true)
-            SelectedLocation.OpenCommand.Execute(null);
-        return Task.CompletedTask;
-    }
-
     private bool _allowLarge;
 
     private RepositorySession Session => _session ?? throw new InvalidOperationException("Repository is not open.");
@@ -496,21 +428,6 @@ public partial class RepositoryViewModel : ViewModelBase
     partial void OnIsDirtyChanged(bool value) => OnPropertyChanged(nameof(ShowDirtyDot));
 
     partial void OnIsConflictedChanged(bool value) => OnPropertyChanged(nameof(ShowDirtyDot));
-
-    partial void OnSelectedLocationChanged(LocationItem? value)
-    {
-        OnPropertyChanged(nameof(CanCheckoutLocation));
-        OnPropertyChanged(nameof(CanMergeLocation));
-        OnPropertyChanged(nameof(CanRebaseLocation));
-        OnPropertyChanged(nameof(CanDeleteLocation));
-        OnPropertyChanged(nameof(CanUpstreamLocation));
-        OnPropertyChanged(nameof(CanRevealLocation));
-        OnPropertyChanged(nameof(CanRenameLocation));
-        OnPropertyChanged(nameof(CanPopLocation));
-        OnPropertyChanged(nameof(CanApplyLocation));
-        OnPropertyChanged(nameof(CanDropLocation));
-        OnPropertyChanged(nameof(CanOpenLocation));
-    }
 
     partial void OnSelectedGraphRowChanged(GraphRowViewModel? value)
     {
@@ -1112,15 +1029,9 @@ public partial class RepositoryViewModel : ViewModelBase
                     Label = branchName,
                     Oid = remote.Oid,
                     ShowCheckout = true,
-                    ShowMerge = true,
-                    ShowRebase = true,
-                    MergeLabel = $"Merge {name} into {head}",
-                    RebaseLabel = $"Rebase {head} onto {name}",
                     ShowDelete = true,
                     ShowReveal = true,
                     CheckoutCommand = new AsyncRelayCommand(() => RunAsync("Checking out…", ct => Session.SwitchTrackAsync(name, ct))),
-                    MergeCommand = new AsyncRelayCommand(() => MergeNamedAsync(name)),
-                    RebaseCommand = new AsyncRelayCommand(() => RebaseOntoAsync(name)),
                     DeleteCommand = new AsyncRelayCommand(() => DeleteRemoteBranchAsync(remoteName, branchName)),
                     RevealCommand = new AsyncRelayCommand(() => RevealAsync(remote.Oid)),
                 });

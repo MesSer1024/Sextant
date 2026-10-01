@@ -42,8 +42,6 @@ public partial class RepositoryViewModel
     // A newer file selection bumps this so a finished load cannot clear the spinner that replaced it.
     private int _imageLoad;
 
-    public bool CanOpenLocation => SelectedLocation?.ShowOpen == true;
-
     [RelayCommand]
     private Task AddWorktree()
     {

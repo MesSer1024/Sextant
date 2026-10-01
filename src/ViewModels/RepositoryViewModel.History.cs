@@ -68,14 +68,6 @@ public partial class RepositoryViewModel
 
     public string BlameLabel => ShowingBlame ? "Diff" : "Blame";
 
-    public bool CanRenameLocation => SelectedLocation?.ShowRename == true;
-
-    public bool CanPopLocation => SelectedLocation?.ShowPop == true;
-
-    public bool CanApplyLocation => SelectedLocation?.ShowApply == true;
-
-    public bool CanDropLocation => SelectedLocation?.ShowDrop == true;
-
     partial void OnSideBySideChanged(bool value) => OnPropertyChanged(nameof(SideBySideLabel));
 
     partial void OnIgnoreWhitespaceChanged(bool value) => OnPropertyChanged(nameof(WhitespaceLabel));
@@ -203,38 +195,6 @@ public partial class RepositoryViewModel
     {
         ShowingBlame = !ShowingBlame;
         return LoadDiffAsync();
-    }
-
-    [RelayCommand]
-    private Task RenameSelected()
-    {
-        if (SelectedLocation?.ShowRename == true)
-            SelectedLocation.RenameCommand.Execute(null);
-        return Task.CompletedTask;
-    }
-
-    [RelayCommand]
-    private Task PopSelected()
-    {
-        if (SelectedLocation?.ShowPop == true)
-            SelectedLocation.PopCommand.Execute(null);
-        return Task.CompletedTask;
-    }
-
-    [RelayCommand]
-    private Task ApplySelected()
-    {
-        if (SelectedLocation?.ShowApply == true)
-            SelectedLocation.ApplyCommand.Execute(null);
-        return Task.CompletedTask;
-    }
-
-    [RelayCommand]
-    private Task DropSelected()
-    {
-        if (SelectedLocation?.ShowDrop == true)
-            SelectedLocation.DropCommand.Execute(null);
-        return Task.CompletedTask;
     }
 
     private Task ShowFileHistoryAsync(string path) =>

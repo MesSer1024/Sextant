@@ -86,72 +86,57 @@
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
 
-            <DockPanel Grid.Column="0">
-                <WrapPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,4,0,0">
-                    <Button Content="Open" Command="{Binding OpenSelectedCommand}" IsVisible="{Binding CanOpenLocation}" Margin="0,0,4,4"/>
-                    <Button Content="Checkout" Command="{Binding CheckoutSelectedCommand}" IsVisible="{Binding CanCheckoutLocation}" Margin="0,0,4,4"/>
-                    <Button Content="Merge" Command="{Binding MergeSelectedCommand}" IsVisible="{Binding CanMergeLocation}" Margin="0,0,4,4"/>
-                    <Button Content="Rebase" Command="{Binding RebaseSelectedCommand}" IsVisible="{Binding CanRebaseLocation}" Margin="0,0,4,4"/>
-                    <Button Content="Delete" Command="{Binding DeleteSelectedCommand}" IsVisible="{Binding CanDeleteLocation}" Margin="0,0,4,4"/>
-                    <Button Content="Upstream" Command="{Binding UpstreamSelectedCommand}" IsVisible="{Binding CanUpstreamLocation}" Margin="0,0,4,4"/>
-                    <Button Content="Show" Command="{Binding RevealSelectedCommand}" IsVisible="{Binding CanRevealLocation}" Margin="0,0,4,4"/>
-                    <Button Content="Rename" Command="{Binding RenameSelectedCommand}" IsVisible="{Binding CanRenameLocation}" Margin="0,0,4,4"/>
-                    <Button Content="Pop" Command="{Binding PopSelectedCommand}" IsVisible="{Binding CanPopLocation}" Margin="0,0,4,4"/>
-                    <Button Content="Apply" Command="{Binding ApplySelectedCommand}" IsVisible="{Binding CanApplyLocation}" Margin="0,0,4,4"/>
-                    <Button Content="Drop" Command="{Binding DropSelectedCommand}" IsVisible="{Binding CanDropLocation}" Margin="0,0,4,4"/>
-                </WrapPanel>
-                <ListBox ItemsSource="{Binding Locations}" SelectedItem="{Binding SelectedLocation}"
-                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                         DoubleTapped="OnLocationDoubleTapped">
-                    <ListBox.ItemsPanel>
-                        <ItemsPanelTemplate>
-                            <VirtualizingStackPanel/>
-                        </ItemsPanelTemplate>
-                    </ListBox.ItemsPanel>
-                    <ListBox.Styles>
-                        <Style Selector="ListBoxItem">
-                            <Setter Property="Padding" Value="2,0"/>
-                            <Setter Property="MinHeight" Value="0"/>
-                        </Style>
-                    </ListBox.Styles>
-                    <ListBox.ItemTemplate>
-                        <DataTemplate x:DataType="vm:LocationItem">
-                            <Grid ColumnDefinitions="16,*" Margin="{Binding Indent}">
-                                <Button Grid.Column="0" Classes="flat" Width="16" Height="16" Padding="0" MinWidth="0"
-                                        IsVisible="{Binding HasChildren}"
-                                        Click="OnLocationExpand" DoubleTapped="OnLocationExpandDoubleTapped"
-                                        Background="Transparent" VerticalAlignment="Center">
-                                    <Path Data="M2,1 L7,6 L2,11" Stroke="{DynamicResource SystemControlForegroundBaseHighBrush}" StrokeThickness="1.4"
-                                          StrokeLineCap="Round" StrokeJoin="Round" Stretch="None"
-                                          RenderTransformOrigin="50%,50%">
-                                        <Path.RenderTransform>
-                                            <RotateTransform Angle="{Binding ExpandAngle}"/>
-                                        </Path.RenderTransform>
-                                    </Path>
-                                </Button>
-                                <Border Grid.Column="1">
-                                    <Border.ContextMenu>
-                                        <ContextMenu Opening="OnMenuOpening">
-                                            <MenuItem Header="Open" Command="{Binding OpenCommand}" IsVisible="{Binding ShowOpen}"/>
-                                            <MenuItem Header="Checkout" Command="{Binding CheckoutCommand}" IsVisible="{Binding ShowCheckout}"/>
-                                            <MenuItem Header="{Binding MergeLabel}" Command="{Binding MergeCommand}" IsVisible="{Binding ShowMerge}"/>
-                                            <MenuItem Header="{Binding RebaseLabel}" Command="{Binding RebaseCommand}" IsVisible="{Binding ShowRebase}"/>
-                                            <MenuItem Header="Delete" Command="{Binding DeleteCommand}" IsVisible="{Binding ShowDelete}"/>
-                                            <MenuItem Header="Set upstream" Command="{Binding SetUpstreamCommand}" IsVisible="{Binding ShowSetUpstream}"/>
-                                            <MenuItem Header="Show in graph" Command="{Binding RevealCommand}" IsVisible="{Binding ShowReveal}"/>
-                                            <MenuItem Header="Rename" Command="{Binding RenameCommand}" IsVisible="{Binding ShowRename}"/>
-                                            <MenuItem Header="Pop" Command="{Binding PopCommand}" IsVisible="{Binding ShowPop}"/>
-                                            <MenuItem Header="Apply" Command="{Binding ApplyCommand}" IsVisible="{Binding ShowApply}"/>
-                                            <MenuItem Header="Drop" Command="{Binding DropCommand}" IsVisible="{Binding ShowDrop}"/>
-                                        </ContextMenu>
-                                    </Border.ContextMenu>
-                                    <TextBlock Text="{Binding Label}" FontWeight="{Binding Weight}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
-                                </Border>
-                            </Grid>
-                        </DataTemplate>
-                    </ListBox.ItemTemplate>
-                </ListBox>
-            </DockPanel>
+            <ListBox Grid.Column="0" ItemsSource="{Binding Locations}" SelectedItem="{Binding SelectedLocation}"
+                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                     DoubleTapped="OnLocationDoubleTapped">
+                <ListBox.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <VirtualizingStackPanel/>
+                    </ItemsPanelTemplate>
+                </ListBox.ItemsPanel>
+                <ListBox.Styles>
+                    <Style Selector="ListBoxItem">
+                        <Setter Property="Padding" Value="2,0"/>
+                        <Setter Property="MinHeight" Value="0"/>
+                    </Style>
+                </ListBox.Styles>
+                <ListBox.ItemTemplate>
+                    <DataTemplate x:DataType="vm:LocationItem">
+                        <Grid ColumnDefinitions="16,*" Margin="{Binding Indent}">
+                            <Button Grid.Column="0" Classes="flat" Width="16" Height="16" Padding="0" MinWidth="0"
+                                    IsVisible="{Binding HasChildren}"
+                                    Click="OnLocationExpand" DoubleTapped="OnLocationExpandDoubleTapped"
+                                    Background="Transparent" VerticalAlignment="Center">
+                                <Path Data="M2,1 L7,6 L2,11" Stroke="{DynamicResource SystemControlForegroundBaseHighBrush}" StrokeThickness="1.4"
+                                      StrokeLineCap="Round" StrokeJoin="Round" Stretch="None"
+                                      RenderTransformOrigin="50%,50%">
+                                    <Path.RenderTransform>
+                                        <RotateTransform Angle="{Binding ExpandAngle}"/>
+                                    </Path.RenderTransform>
+                                </Path>
+                            </Button>
+                            <Border Grid.Column="1">
+                                <Border.ContextMenu>
+                                    <ContextMenu Opening="OnMenuOpening">
+                                        <MenuItem Header="Open" Command="{Binding OpenCommand}" IsVisible="{Binding ShowOpen}"/>
+                                        <MenuItem Header="Checkout" Command="{Binding CheckoutCommand}" IsVisible="{Binding ShowCheckout}"/>
+                                        <MenuItem Header="{Binding MergeLabel}" Command="{Binding MergeCommand}" IsVisible="{Binding ShowMerge}"/>
+                                        <MenuItem Header="{Binding RebaseLabel}" Command="{Binding RebaseCommand}" IsVisible="{Binding ShowRebase}"/>
+                                        <MenuItem Header="Delete" Command="{Binding DeleteCommand}" IsVisible="{Binding ShowDelete}"/>
+                                        <MenuItem Header="Set upstream" Command="{Binding SetUpstreamCommand}" IsVisible="{Binding ShowSetUpstream}"/>
+                                        <MenuItem Header="Show in graph" Command="{Binding RevealCommand}" IsVisible="{Binding ShowReveal}"/>
+                                        <MenuItem Header="Rename" Command="{Binding RenameCommand}" IsVisible="{Binding ShowRename}"/>
+                                        <MenuItem Header="Pop" Command="{Binding PopCommand}" IsVisible="{Binding ShowPop}"/>
+                                        <MenuItem Header="Apply" Command="{Binding ApplyCommand}" IsVisible="{Binding ShowApply}"/>
+                                        <MenuItem Header="Drop" Command="{Binding DropCommand}" IsVisible="{Binding ShowDrop}"/>
+                                    </ContextMenu>
+                                </Border.ContextMenu>
+                                <TextBlock Text="{Binding Label}" FontWeight="{Binding Weight}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                            </Border>
+                        </Grid>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
 
             <GridSplitter Grid.Column="1" ResizeDirection="Columns"/>
 
