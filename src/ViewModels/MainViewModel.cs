@@ -309,6 +309,8 @@ public partial class MainViewModel : ViewModelBase, IWorkspaceHost
         }
     }
 
+    public Task OpenRepositoryAsync(string path) => OpenPathAsync(path);
+
     private async Task OpenFolderAsync()
     {
         if (!CanUseGit || Dialogs is null)
@@ -491,6 +493,7 @@ public partial class MainViewModel : ViewModelBase, IWorkspaceHost
             _palette.Add(new PaletteItem { Title = "Search history", Run = () => { tab.ToggleHistorySearchCommand.Execute(null); return Task.CompletedTask; } });
             _palette.Add(new PaletteItem { Title = "Stash", Run = () => tab.StashCommand.ExecuteAsync(null) });
             _palette.Add(new PaletteItem { Title = "Add remote", Run = () => tab.AddRemoteCommand.ExecuteAsync(null) });
+            _palette.Add(new PaletteItem { Title = "Add worktree", Run = () => tab.AddWorktreeCommand.ExecuteAsync(null) });
             _palette.Add(new PaletteItem { Title = "Toggle side-by-side diff", Run = () => tab.ToggleSideBySideCommand.ExecuteAsync(null) });
             _palette.Add(new PaletteItem { Title = "Toggle ignore whitespace", Run = () => tab.ToggleWhitespaceCommand.ExecuteAsync(null) });
             _palette.Add(new PaletteItem { Title = "Toggle all files", Run = () => tab.ToggleAllFilesCommand.ExecuteAsync(null) });

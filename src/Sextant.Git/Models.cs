@@ -100,6 +100,8 @@ public sealed record DiffDocument(
     public static DiffDocument TooLarge { get; } = new(false, false, false, false, true, [], "");
 
     public static DiffDocument Binary { get; } = new(true, false, false, false, false, [], "");
+
+    public IReadOnlyList<LfsFileNote> LfsFiles { get; init; } = [];
 }
 
 public enum SequencerKind
@@ -119,6 +121,49 @@ public sealed record BlameDocument(bool IsTooLarge, IReadOnlyList<BlameLine> Lin
 }
 
 public sealed record StashEntry(string Ref, string Sha, string Subject);
+
+public enum SubmoduleState
+{
+    Matches,
+    Modified,
+    Uninitialized,
+    Conflict,
+}
+
+public sealed record SubmoduleEntry(string Path, string Sha, string? Describe, SubmoduleState State);
+
+public sealed record WorktreeEntry(
+    string Path,
+    string? Head,
+    string? Branch,
+    bool Detached,
+    bool Bare,
+    bool Locked,
+    string? LockReason);
+
+public sealed record LfsPointer(string Oid, long Size)
+{
+    public string Render() =>
+        "version https://git-lfs.github.com/spec/v1\noid " + Oid + "\nsize " + Size.ToString(System.Globalization.CultureInfo.InvariantCulture) + "\n";
+}
+
+public sealed record LfsFileNote(string Path, LfsPointer? Before, LfsPointer? After, long? LocalBytes);
+
+public sealed record BlobLoad(byte[] Bytes, bool TooLarge)
+{
+    public static BlobLoad OverLimit { get; } = new([], true);
+
+    public static BlobLoad Empty { get; } = new([], false);
+}
+
+public sealed record ImageRequest(
+    string Path,
+    string? BeforeRevision,
+    string? AfterRevision,
+    bool BeforeIsWorktree,
+    bool AfterIsWorktree);
+
+public sealed record ImagePreview(byte[]? Before, byte[]? After, string Notice);
 
 public sealed record CommandLogEntry(
     DateTimeOffset At,
@@ -164,6 +209,12 @@ public sealed class SessionState
     public required IReadOnlyList<CommandLogEntry> Commands { get; init; }
 
     public required PerformanceSuggestion? Suggestion { get; init; }
+
+    public required IReadOnlyList<SubmoduleEntry> Submodules { get; init; }
+
+    public required IReadOnlyList<WorktreeEntry> Worktrees { get; init; }
+
+    public required bool SparseCheckout { get; init; }
 }
 
 public static class HistoryLimits
@@ -177,4 +228,8 @@ public static class HistoryLimits
     public const int MaxDiffBytes = 1_000_000;
 
     public const int MaxDiffLines = 20_000;
+
+    public const int MaxPreviewBytes = 8 * 1024 * 1024;
+
+    public const int LfsPointerProbeBytes = 1024;
 }

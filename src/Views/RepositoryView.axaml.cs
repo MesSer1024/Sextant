@@ -385,7 +385,7 @@ public partial class RepositoryView : UserControl
 
     private static bool HasLocationMenu(LocationItem item) =>
         item.ShowCheckout || item.ShowMerge || item.ShowDelete || item.ShowSetUpstream || item.ShowReveal
-        || item.ShowRename || item.ShowPop || item.ShowApply || item.ShowDrop;
+        || item.ShowRename || item.ShowPop || item.ShowApply || item.ShowDrop || item.ShowOpen;
 
     private void OnLocationExpand(object? sender, RoutedEventArgs e)
     {

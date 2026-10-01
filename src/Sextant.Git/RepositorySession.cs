@@ -3,7 +3,7 @@ using Sextant.Git.Parsing;
 
 namespace Sextant.Git;
 
-public sealed class RepositorySession : IAsyncDisposable
+public sealed partial class RepositorySession : IAsyncDisposable
 {
     private readonly GitProcessRunner _runner;
     private readonly string _executable;
@@ -32,6 +32,8 @@ public sealed class RepositorySession : IAsyncDisposable
     private HistoryQuery? _historyQuery;
     private bool _includeStash;
     private List<StashEntry> _stashes = [];
+    private List<SubmoduleEntry> _submodules = [];
+    private List<WorktreeEntry> _worktrees = [];
     private TimeSpan _statusDuration;
     private PerformanceSuggestion? _suggestion;
     private string _tipSignature = "";
@@ -89,6 +91,9 @@ public sealed class RepositorySession : IAsyncDisposable
                 Remotes = _remotes.ToArray(),
                 Commands = _commands.ToArray(),
                 Suggestion = _suggestion,
+                Submodules = _submodules.ToArray(),
+                Worktrees = _worktrees.ToArray(),
+                SparseCheckout = ConfigParser.IsEnabled(_config, "core.sparseCheckout"),
             };
         }
     }
@@ -154,13 +159,19 @@ public sealed class RepositorySession : IAsyncDisposable
             var document = await _scheduler.ReadAsync(async inner =>
             {
                 if (untracked && !staged)
-                    return await DiffUntrackedAsync(path, allowLarge, ignoreWhitespace, inner).ConfigureAwait(false);
+                {
+                    var untrackedDiff = await DiffUntrackedAsync(path, allowLarge, ignoreWhitespace, inner).ConfigureAwait(false);
+                    return await AnnotateAsync(untrackedDiff, path, null, null, true, inner).ConfigureAwait(false);
+                }
+
                 var arguments = staged
                     ? GitCommands.DiffStaged(_toplevel, path, ignoreWhitespace)
                     : GitCommands.DiffUnstaged(_toplevel, path, ignoreWhitespace);
                 var output = await ExecuteAsync(arguments, null, inner).ConfigureAwait(false);
                 Checked(output);
-                return ToDiff(output, allowLarge);
+                var before = staged ? "HEAD" : "";
+                string? after = staged ? "" : null;
+                return await AnnotateAsync(ToDiff(output, allowLarge), path, before, after, !staged, inner).ConfigureAwait(false);
             }, ct).ConfigureAwait(false);
             return _diffGate.IsCurrent(token) ? document : null;
         }, cancellationToken);
@@ -169,8 +180,11 @@ public sealed class RepositorySession : IAsyncDisposable
     public Task<DiffDocument?> WorktreeDiffAsync(bool staged, bool allowLarge, bool ignoreWhitespace, CancellationToken cancellationToken)
     {
         var token = _diffGate.Next();
+        var before = staged ? "HEAD" : "";
+        string? after = staged ? "" : null;
         return ReadDiffAsync(token, allowLarge, cancellationToken, inner =>
-            ExecuteAsync(GitCommands.DiffWorktree(_toplevel, staged, ignoreWhitespace), null, inner));
+            ExecuteAsync(GitCommands.DiffWorktree(_toplevel, staged, ignoreWhitespace), null, inner),
+            (document, inner) => AnnotateAsync(document, null, before, after, !staged, inner));
     }
 
     public Task<DiffDocument?> CommitDiffAsync(
@@ -188,7 +202,8 @@ public sealed class RepositorySession : IAsyncDisposable
                 ? GitCommands.ShowPatch(_toplevel, sha, path, ignoreWhitespace)
                 : GitCommands.DiffRange(_toplevel, firstParent, sha, path, ignoreWhitespace);
             return ExecuteAsync(arguments, null, inner);
-        });
+        },
+        (document, inner) => AnnotateAsync(document, path, firstParent, sha, false, inner));
     }
 
     public Task<DiffDocument?> RangeDiffAsync(
@@ -201,7 +216,8 @@ public sealed class RepositorySession : IAsyncDisposable
     {
         var token = _diffGate.Next();
         return ReadDiffAsync(token, allowLarge, cancellationToken, inner =>
-            ExecuteAsync(GitCommands.DiffRange(_toplevel, older, newer, path, ignoreWhitespace), null, inner));
+            ExecuteAsync(GitCommands.DiffRange(_toplevel, older, newer, path, ignoreWhitespace), null, inner),
+            (document, inner) => AnnotateAsync(document, path, older, newer, false, inner));
     }
 
     public Task<IReadOnlyList<CommitFileChange>?> RangeFilesAsync(string older, string newer, CancellationToken cancellationToken)
@@ -739,6 +755,8 @@ public sealed class RepositorySession : IAsyncDisposable
                 _refs = refs.Refs.ToList();
                 _remotes = refs.Remotes.ToList();
                 _stashes = refs.Stashes.ToList();
+                _submodules = refs.Submodules.ToList();
+                _worktrees = refs.Worktrees.ToList();
                 _includeStash = includeStash;
                 _tipSignature = Tips(_branch, _refs);
                 _lanes.Reset();
@@ -773,6 +791,8 @@ public sealed class RepositorySession : IAsyncDisposable
             _refs = refs.Refs.ToList();
             _remotes = refs.Remotes.ToList();
             _stashes = refs.Stashes.ToList();
+            _submodules = refs.Submodules.ToList();
+            _worktrees = refs.Worktrees.ToList();
             _includeStash = _refs.Exists(reference => reference.Name == "refs/stash");
             _tipSignature = Tips(_branch, _refs);
             reload = oldOid != _branch.Oid || oldTips != _tipSignature;
@@ -851,7 +871,17 @@ public sealed class RepositorySession : IAsyncDisposable
                 stashes = StashParser.Parse(stashOutput.Stdout, _encoding);
             }
 
-            return new RefLoad(parsed, names, stashes);
+            var submoduleOutput = await ExecuteAsync(GitCommands.SubmoduleStatus(_toplevel), null, token).ConfigureAwait(false);
+            Track(submoduleOutput);
+            var submodules = submoduleOutput.ExitCode == 0
+                ? SubmoduleParser.Parse(Encoding.UTF8.GetString(submoduleOutput.Stdout))
+                : Array.Empty<SubmoduleEntry>();
+            var worktreeOutput = await ExecuteAsync(GitCommands.WorktreeList(_toplevel), null, token).ConfigureAwait(false);
+            Track(worktreeOutput);
+            var worktrees = worktreeOutput.ExitCode == 0
+                ? WorktreeParser.Parse(Encoding.UTF8.GetString(worktreeOutput.Stdout))
+                : Array.Empty<WorktreeEntry>();
+            return new RefLoad(parsed, names, stashes, submodules, worktrees);
         }, cancellationToken).ConfigureAwait(false);
     }
 
@@ -1024,8 +1054,9 @@ public sealed class RepositorySession : IAsyncDisposable
         IReadOnlyList<string> arguments,
         IProgress<string>? progress,
         CancellationToken cancellationToken,
-        IReadOnlyDictionary<string, string>? environment = null) =>
-        ExecuteInAsync(arguments, _toplevel, progress, cancellationToken, environment);
+        IReadOnlyDictionary<string, string>? environment = null,
+        byte[]? standardInput = null) =>
+        ExecuteInAsync(arguments, _toplevel, progress, cancellationToken, environment, standardInput);
 
     private Task<GitOutput> ExecuteInAsync(IReadOnlyList<string> arguments, string workingDirectory, CancellationToken cancellationToken) =>
         ExecuteInAsync(arguments, workingDirectory, null, cancellationToken);
@@ -1035,7 +1066,8 @@ public sealed class RepositorySession : IAsyncDisposable
         string? workingDirectory,
         IProgress<string>? progress,
         CancellationToken cancellationToken,
-        IReadOnlyDictionary<string, string>? environment = null) =>
+        IReadOnlyDictionary<string, string>? environment = null,
+        byte[]? standardInput = null) =>
         _runner.RunAsync(new GitRequest
         {
             Executable = _executable,
@@ -1043,6 +1075,7 @@ public sealed class RepositorySession : IAsyncDisposable
             WorkingDirectory = string.IsNullOrEmpty(workingDirectory) ? null : workingDirectory,
             Progress = progress,
             Environment = environment,
+            StandardInput = standardInput,
         }, cancellationToken);
 
     private GitOutput Checked(GitOutput output)
@@ -1116,14 +1149,16 @@ public sealed class RepositorySession : IAsyncDisposable
         int token,
         bool allowLarge,
         CancellationToken cancellationToken,
-        Func<CancellationToken, Task<GitOutput>> execute) =>
+        Func<CancellationToken, Task<GitOutput>> execute,
+        Func<DiffDocument, CancellationToken, Task<DiffDocument>>? annotate = null) =>
         RunAsync(async ct =>
         {
             var document = await _scheduler.ReadAsync(async inner =>
             {
                 var output = await execute(inner).ConfigureAwait(false);
                 Checked(output);
-                return ToDiff(output, allowLarge);
+                var parsed = ToDiff(output, allowLarge);
+                return annotate is null ? parsed : await annotate(parsed, inner).ConfigureAwait(false);
             }, ct).ConfigureAwait(false);
             return _diffGate.IsCurrent(token) ? document : null;
         }, cancellationToken);
@@ -1215,7 +1250,12 @@ public sealed class RepositorySession : IAsyncDisposable
 
     private readonly record struct StatusLoad(StatusSnapshot Snapshot, TimeSpan Duration);
 
-    private readonly record struct RefLoad(IReadOnlyList<GitRef> Refs, IReadOnlyList<string> Remotes, IReadOnlyList<StashEntry> Stashes);
+    private readonly record struct RefLoad(
+        IReadOnlyList<GitRef> Refs,
+        IReadOnlyList<string> Remotes,
+        IReadOnlyList<StashEntry> Stashes,
+        IReadOnlyList<SubmoduleEntry> Submodules,
+        IReadOnlyList<WorktreeEntry> Worktrees);
 
     private readonly record struct LogLoad(IReadOnlyList<CommitRecord> Commits, bool Ended);
 }

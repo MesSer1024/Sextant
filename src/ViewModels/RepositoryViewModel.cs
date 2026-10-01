@@ -190,6 +190,7 @@ public partial class RepositoryViewModel : ViewModelBase
         _details?.Cancel();
         _watcher?.Dispose();
         _watcher = null;
+        ClearPreview();
         if (_session is not null)
             await _session.DisposeAsync();
     }
@@ -198,6 +199,8 @@ public partial class RepositoryViewModel : ViewModelBase
     {
         if (item.ShowCheckout)
             item.CheckoutCommand.Execute(null);
+        else if (item.ShowOpen)
+            item.OpenCommand.Execute(null);
         else if (item.ShowReveal)
             item.RevealCommand.Execute(null);
     }
@@ -408,6 +411,14 @@ public partial class RepositoryViewModel : ViewModelBase
         return Task.CompletedTask;
     }
 
+    [RelayCommand]
+    private Task OpenSelected()
+    {
+        if (SelectedLocation?.ShowOpen == true)
+            SelectedLocation.OpenCommand.Execute(null);
+        return Task.CompletedTask;
+    }
+
     private bool _allowLarge;
 
     private RepositorySession Session => _session ?? throw new InvalidOperationException("Repository is not open.");
@@ -455,6 +466,7 @@ public partial class RepositoryViewModel : ViewModelBase
         OnPropertyChanged(nameof(CanPopLocation));
         OnPropertyChanged(nameof(CanApplyLocation));
         OnPropertyChanged(nameof(CanDropLocation));
+        OnPropertyChanged(nameof(CanOpenLocation));
     }
 
     partial void OnSelectedGraphRowChanged(GraphRowViewModel? value)
@@ -774,6 +786,7 @@ public partial class RepositoryViewModel : ViewModelBase
             ShowAheadBehind = state.Branch.Ahead != 0 || state.Branch.Behind != 0;
             AheadBehindText = ShowAheadBehind ? $"↑{state.Branch.Ahead}  ↓{state.Branch.Behind}" : "";
             IsDirty = state.Entries.Count > 0;
+            SparseCheckout = state.SparseCheckout;
             IsConflicted = state.Sequencer != SequencerKind.None;
             var unmerged = state.Entries.Any(entry => entry.Kind == ChangeKind.Unmerged);
             _amendAllowed = !state.Branch.Unborn
@@ -1107,6 +1120,52 @@ public partial class RepositoryViewModel : ViewModelBase
             }
 
             _locationRoots.Add(Section("h:stashes", "Stashes", stashes, stashes.Count));
+        }
+
+        if (state.Submodules.Count > 0)
+        {
+            var modules = new List<LocationItem>();
+            foreach (var module in state.Submodules)
+            {
+                var suffix = module.State switch
+                {
+                    SubmoduleState.Uninitialized => "not checked out",
+                    SubmoduleState.Modified => "modified",
+                    SubmoduleState.Conflict => "conflict",
+                    _ => string.IsNullOrEmpty(module.Describe) ? Short(module.Sha) : module.Describe,
+                };
+                modules.Add(new LocationItem
+                {
+                    Key = "u:" + module.Path,
+                    Label = module.Path + "  " + suffix,
+                    ShowOpen = module.State != SubmoduleState.Uninitialized,
+                    OpenCommand = new AsyncRelayCommand(() => OpenSubmoduleAsync(module)),
+                });
+            }
+
+            _locationRoots.Add(Section("h:submodules", "Submodules", modules, modules.Count));
+        }
+
+        if (state.Worktrees.Count > 0)
+        {
+            var trees = new List<LocationItem>();
+            foreach (var tree in state.Worktrees.OrderBy(tree => tree.Path, StringComparer.Ordinal))
+            {
+                var current = Toplevel is not null && RepoPath.Same(tree.Path, Toplevel);
+                var name = tree.Bare
+                    ? "bare"
+                    : tree.Detached ? "detached " + Short(tree.Head) : ShortHead(tree.Branch ?? "");
+                trees.Add(new LocationItem
+                {
+                    Key = "w:" + tree.Path,
+                    Label = name + "  " + tree.Path,
+                    IsCurrent = current,
+                    ShowOpen = !current,
+                    OpenCommand = new AsyncRelayCommand(() => _host.OpenRepositoryAsync(tree.Path)),
+                });
+            }
+
+            _locationRoots.Add(Section("h:worktrees", "Worktrees", trees, trees.Count));
         }
 
         PublishLocations(selected);
@@ -1563,7 +1622,9 @@ public partial class RepositoryViewModel : ViewModelBase
 
             if (document is null || token.IsCancellationRequested)
                 return;
+            RememberObjects(range, workingCopy, file);
             RenderDiff(document, file, workingCopy);
+            await LoadImageAsync(file, workingCopy, range, token);
         }
         catch (OperationCanceledException)
         {
@@ -1612,6 +1673,7 @@ public partial class RepositoryViewModel : ViewModelBase
             });
         }
 
+        ClearPreview();
         MergeRegions.Reset(rows);
         _mergePath = file.Path;
         DiffRows.Clear();
@@ -1634,9 +1696,11 @@ public partial class RepositoryViewModel : ViewModelBase
     private void RenderDiff(DiffDocument document, FileRowViewModel? file, bool workingCopy)
     {
         ClearMerge();
+        ClearPreview();
         DiffRows.Clear();
         BlameRows.Clear();
         _rawPatch = document.RawPatch;
+        NoteLfs(document, !AllFiles);
         ShowLoadDiff = document.IsTooLarge;
         if (document.IsTooLarge)
         {
@@ -1660,19 +1724,28 @@ public partial class RepositoryViewModel : ViewModelBase
             foreach (var entry in files)
             {
                 DiffRows.Add(new DiffFileRow { Label = string.IsNullOrEmpty(entry.Path) ? "Diff" : entry.Path });
-                AppendFileDiff(entry.Document, workingCopy, KindForDiff(entry.Document));
+                AppendFileDiff(entry.Document, workingCopy, KindForDiff(entry.Document), path: entry.Path, notes: document.LfsFiles);
             }
 
             return;
         }
 
-        AppendFileDiff(document, workingCopy, file?.Kind ?? ChangeKind.Modified, notice: true);
+        AppendFileDiff(document, workingCopy, file?.Kind ?? ChangeKind.Modified, notice: true, path: file?.Path, notes: document.LfsFiles);
     }
 
-    private void AppendFileDiff(DiffDocument document, bool workingCopy, ChangeKind kind, bool notice = false)
+    private void AppendFileDiff(
+        DiffDocument document,
+        bool workingCopy,
+        ChangeKind kind,
+        bool notice = false,
+        string? path = null,
+        IReadOnlyList<LfsFileNote>? notes = null)
     {
+        _lineLanguage = DiffSyntax.Language(path);
         if (document.IsBinary)
         {
+            if (notes is not null && notes.Any(note => note.Path == (path ?? "")))
+                return;
             NoteFile(notice, "Binary file.");
             return;
         }
@@ -1741,6 +1814,7 @@ public partial class RepositoryViewModel : ViewModelBase
             DiffRows.Add(new DiffLineRow
             {
                 Text = prefix + line.Text,
+                Language = _lineLanguage,
                 Background = background,
                 ShowAction = show,
                 ActionLabel = lineLabel,
@@ -1789,6 +1863,7 @@ public partial class RepositoryViewModel : ViewModelBase
         {
             Left = left,
             Right = right,
+            Language = _lineLanguage,
             LeftBackground = leftBackground,
             RightBackground = rightBackground,
         });
@@ -1836,6 +1911,7 @@ public partial class RepositoryViewModel : ViewModelBase
     private void ClearDiff(string notice)
     {
         ClearMerge();
+        ClearPreview();
         DiffRows.Clear();
         BlameRows.Clear();
         _rawPatch = null;
@@ -2040,6 +2116,10 @@ public partial class RepositoryViewModel : ViewModelBase
             builder.Append(remote).Append(';');
         foreach (var stash in state.Stashes)
             builder.Append(stash.Ref).Append('=').Append(stash.Sha).Append('|');
+        foreach (var module in state.Submodules)
+            builder.Append('u').Append(module.Path).Append(module.Sha).Append((int)module.State).Append(module.Describe).Append('|');
+        foreach (var tree in state.Worktrees)
+            builder.Append('w').Append(tree.Path).Append(tree.Head).Append(tree.Branch).Append(tree.Detached ? 'd' : ' ').Append('|');
         return builder.ToString();
     }
 

@@ -8,7 +8,7 @@
              mc:Ignorable="d" d:DesignWidth="1000" d:DesignHeight="640"
              x:Class="Sextant.Views.RepositoryView"
              x:DataType="vm:RepositoryViewModel">
-    <Grid RowDefinitions="Auto,Auto,Auto,*,Auto">
+    <Grid RowDefinitions="Auto,Auto,Auto,Auto,*,Auto">
         <Border Grid.Row="0" IsVisible="{Binding HasBanner}" Padding="10,6" Background="#33C42B1C">
             <DockPanel>
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="6">
@@ -23,7 +23,11 @@
             <TextBlock Text="{Binding ConflictText}" TextWrapping="Wrap"/>
         </Border>
 
-        <Grid Grid.Row="2" Margin="8,6" Grid.IsSharedSizeScope="True">
+        <Border Grid.Row="2" IsVisible="{Binding SparseCheckout}" Padding="10,6" Background="#332B6CB0">
+            <TextBlock Text="Sparse checkout is on. Excluded paths stay out of the working tree." TextWrapping="Wrap"/>
+        </Border>
+
+        <Grid Grid.Row="3" Margin="8,6" Grid.IsSharedSizeScope="True">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" SharedSizeGroup="BranchEnds"/>
                 <ColumnDefinition Width="*"/>
@@ -73,7 +77,7 @@
             </StackPanel>
         </Grid>
 
-        <Grid x:Name="Columns" Grid.Row="3" Margin="4,0,4,4">
+        <Grid x:Name="Columns" Grid.Row="4" Margin="4,0,4,4">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="220" MinWidth="140"/>
                 <ColumnDefinition Width="4"/>
@@ -84,6 +88,7 @@
 
             <DockPanel Grid.Column="0">
                 <WrapPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,4,0,0">
+                    <Button Content="Open" Command="{Binding OpenSelectedCommand}" IsVisible="{Binding CanOpenLocation}" Margin="0,0,4,4"/>
                     <Button Content="Checkout" Command="{Binding CheckoutSelectedCommand}" IsVisible="{Binding CanCheckoutLocation}" Margin="0,0,4,4"/>
                     <Button Content="Merge" Command="{Binding MergeSelectedCommand}" IsVisible="{Binding CanMergeLocation}" Margin="0,0,4,4"/>
                     <Button Content="Delete" Command="{Binding DeleteSelectedCommand}" IsVisible="{Binding CanDeleteLocation}" Margin="0,0,4,4"/>
@@ -126,6 +131,7 @@
                                 <Border Grid.Column="1">
                                     <Border.ContextMenu>
                                         <ContextMenu Opening="OnMenuOpening">
+                                            <MenuItem Header="Open" Command="{Binding OpenCommand}" IsVisible="{Binding ShowOpen}"/>
                                             <MenuItem Header="Checkout" Command="{Binding CheckoutCommand}" IsVisible="{Binding ShowCheckout}"/>
                                             <MenuItem Header="Merge into HEAD" Command="{Binding MergeCommand}" IsVisible="{Binding ShowMerge}"/>
                                             <MenuItem Header="Delete" Command="{Binding DeleteCommand}" IsVisible="{Binding ShowDelete}"/>
@@ -288,6 +294,13 @@
                     <StackPanel DockPanel.Dock="Top" Margin="8,4">
                         <TextBlock Text="{Binding DiffNotice}" IsVisible="{Binding HasDiffNotice}" TextWrapping="Wrap" Opacity="0.75"/>
                         <Button Classes="flat" Content="Load anyway" Command="{Binding LoadLargeDiffCommand}" IsVisible="{Binding ShowLoadDiff}" HorizontalAlignment="Left" Margin="0,4,0,0"/>
+                        <TextBlock Text="{Binding LfsNotice}" IsVisible="{Binding HasLfsNotice}" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                        <Button Classes="flat" Content="Show the file" Command="{Binding ShowLfsCommand}" IsVisible="{Binding ShowLfsDownload}" HorizontalAlignment="Left" Margin="0,4,0,0"/>
+                        <TextBlock Text="{Binding ImageNotice}" IsVisible="{Binding HasImageNotice}" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                        <Grid ColumnDefinitions="*,8,*" IsVisible="{Binding ShowingImage}" Margin="0,4,0,0">
+                            <Image Source="{Binding ImageBefore}" MaxHeight="280" Stretch="Uniform" HorizontalAlignment="Left" IsVisible="{Binding HasImageBefore}"/>
+                            <Image Grid.Column="2" Source="{Binding ImageAfter}" MaxHeight="280" Stretch="Uniform" HorizontalAlignment="Left" IsVisible="{Binding HasImageAfter}"/>
+                        </Grid>
                     </StackPanel>
                     <Grid DockPanel.Dock="Top" IsVisible="{Binding ShowingMerge}" ColumnDefinitions="*,8,*,8,*" Margin="8,4,8,0">
                         <TextBlock Text="Ours" FontWeight="SemiBold" Opacity="0.75"/>
@@ -311,13 +324,13 @@
                                 <DataTemplate DataType="vm:DiffLineRow" x:DataType="vm:DiffLineRow">
                                     <DockPanel>
                                         <Button Classes="flat" DockPanel.Dock="Right" Content="{Binding ActionLabel}" Command="{Binding ActionCommand}" IsVisible="{Binding ShowAction}" Padding="6,0"/>
-                                        <views:CopyableText Classes="diff" CopyKey="body" Text="{Binding Text}" Background="{Binding Background}" Padding="8,0"/>
+                                        <views:HighlightedText Classes="diff" CopyKey="body" Source="{Binding Text}" Language="{Binding Language}" Background="{Binding Background}" Padding="8,0"/>
                                     </DockPanel>
                                 </DataTemplate>
                                 <DataTemplate DataType="vm:DiffSideRow" x:DataType="vm:DiffSideRow">
                                     <Grid ColumnDefinitions="*,*">
-                                        <views:CopyableText Classes="diff" CopyKey="left" Text="{Binding Left}" Background="{Binding LeftBackground}" Padding="8,0"/>
-                                        <views:CopyableText Grid.Column="1" Classes="diff" CopyKey="right" Text="{Binding Right}" Background="{Binding RightBackground}" Padding="8,0"/>
+                                        <views:HighlightedText Classes="diff" CopyKey="left" Source="{Binding Left}" Language="{Binding Language}" Background="{Binding LeftBackground}" Padding="8,0"/>
+                                        <views:HighlightedText Grid.Column="1" Classes="diff" CopyKey="right" Source="{Binding Right}" Language="{Binding Language}" Background="{Binding RightBackground}" Padding="8,0"/>
                                     </Grid>
                                 </DataTemplate>
                                 <DataTemplate DataType="vm:DiffFileRow" x:DataType="vm:DiffFileRow">
@@ -371,7 +384,7 @@
             </Grid>
         </Grid>
 
-        <Border Grid.Row="4" IsVisible="{Binding CommandsOpen}" HorizontalAlignment="Stretch"
+        <Border Grid.Row="5" IsVisible="{Binding CommandsOpen}" HorizontalAlignment="Stretch"
                 Height="168" Padding="8,4,8,8" Margin="0" ClipToBounds="True"
                 BorderThickness="0,1,0,0"
                 BorderBrush="{DynamicResource SystemControlForegroundBaseMediumLowBrush}"

@@ -139,6 +139,10 @@ public partial class LocationItem : ObservableObject
 
     public bool ShowDrop { get; init; }
 
+    public bool ShowOpen { get; init; }
+
+    public ICommand OpenCommand { get; init; } = UiCommands.Disabled;
+
     public ICommand CheckoutCommand { get; init; } = UiCommands.Disabled;
 
     public ICommand MergeCommand { get; init; } = UiCommands.Disabled;
@@ -214,6 +218,8 @@ public sealed class DiffLineRow : DiffRow
 {
     public required string Text { get; init; }
 
+    public string? Language { get; init; }
+
     public required IBrush Background { get; init; }
 
     public bool ShowAction { get; init; }
@@ -228,6 +234,8 @@ public sealed class DiffSideRow : DiffRow
     public required string Left { get; init; }
 
     public required string Right { get; init; }
+
+    public string? Language { get; init; }
 
     public required IBrush LeftBackground { get; init; }
 

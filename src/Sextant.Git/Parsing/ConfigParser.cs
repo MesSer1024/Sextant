@@ -22,6 +22,13 @@ public static class ConfigParser
         return config;
     }
 
+    public static bool IsEnabled(IReadOnlyDictionary<string, string> config, string key)
+    {
+        if (!config.TryGetValue(key, out var value))
+            return false;
+        return value.Trim().ToLowerInvariant() is "true" or "yes" or "on" or "1";
+    }
+
     public static Encoding LogEncoding(IReadOnlyDictionary<string, string> config)
     {
         if (!config.TryGetValue("i18n.logoutputencoding", out var name) || name.Length == 0)

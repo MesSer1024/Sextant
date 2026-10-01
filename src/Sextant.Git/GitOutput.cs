@@ -26,6 +26,8 @@ public sealed class GitRequest
     public IProgress<string>? Progress { get; init; }
 
     public IReadOnlyDictionary<string, string>? Environment { get; init; }
+
+    public byte[]? StandardInput { get; init; }
 }
 
 public sealed class RepositoryActionException : Exception

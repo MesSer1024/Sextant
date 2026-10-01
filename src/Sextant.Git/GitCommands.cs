@@ -91,11 +91,12 @@ public static class GitCommands
 
     public static IReadOnlyList<string> Blame(string toplevel, string? revision, string path)
     {
-        var arguments = new List<string> { "-C", toplevel, "--no-optional-locks", "blame", "--line-porcelain" };
+        var arguments = new List<string> { "-C", toplevel, "--no-optional-locks", "blame", "--no-textconv", "--line-porcelain" };
         if (!string.IsNullOrEmpty(revision))
             arguments.Add(revision);
         arguments.Add("--");
         arguments.Add(path);
+        KeepLfsPointers(arguments);
         return arguments;
     }
 
@@ -203,12 +204,13 @@ public static class GitCommands
 
     public static IReadOnlyList<string> DiffUntracked(string toplevel, string path, bool ignoreWhitespace = false)
     {
-        var arguments = new List<string> { "-C", toplevel, "--no-optional-locks", "diff", "--no-index" };
+        var arguments = new List<string> { "-C", toplevel, "--no-optional-locks", "diff", "--no-textconv", "--no-index" };
         if (ignoreWhitespace)
             arguments.Add("-w");
         arguments.Add("--");
         arguments.Add("/dev/null");
         arguments.Add(path);
+        KeepLfsPointers(arguments);
         return arguments;
     }
 
@@ -217,7 +219,7 @@ public static class GitCommands
 
     public static IReadOnlyList<string> DiffWorktree(string toplevel, bool staged, bool ignoreWhitespace, string? path = null)
     {
-        var arguments = new List<string> { "-C", toplevel, "--no-optional-locks", "diff" };
+        var arguments = new List<string> { "-C", toplevel, "--no-optional-locks", "diff", "--no-textconv" };
         if (staged)
             arguments.Add("--cached");
         if (ignoreWhitespace)
@@ -228,12 +230,13 @@ public static class GitCommands
             arguments.Add(path);
         }
 
+        KeepLfsPointers(arguments);
         return arguments;
     }
 
     public static IReadOnlyList<string> DiffRange(string toplevel, string older, string newer, string? path, bool ignoreWhitespace = false)
     {
-        var arguments = new List<string> { "-C", toplevel, "--no-optional-locks", "diff" };
+        var arguments = new List<string> { "-C", toplevel, "--no-optional-locks", "diff", "--no-textconv" };
         if (ignoreWhitespace)
             arguments.Add("-w");
         arguments.Add(older);
@@ -244,6 +247,7 @@ public static class GitCommands
             arguments.Add(path);
         }
 
+        KeepLfsPointers(arguments);
         return arguments;
     }
 
@@ -252,7 +256,7 @@ public static class GitCommands
 
     public static IReadOnlyList<string> ShowPatch(string toplevel, string sha, string? path, bool ignoreWhitespace = false)
     {
-        var arguments = new List<string> { "-C", toplevel, "--no-optional-locks", "show" };
+        var arguments = new List<string> { "-C", toplevel, "--no-optional-locks", "show", "--no-textconv" };
         if (ignoreWhitespace)
             arguments.Add("-w");
         arguments.Add("--format=");
@@ -264,11 +268,20 @@ public static class GitCommands
             arguments.Add(path);
         }
 
+        KeepLfsPointers(arguments);
         return arguments;
     }
 
-    public static IReadOnlyList<string> ShowStage(string toplevel, int stage, string path) =>
-        ["-C", toplevel, "--no-optional-locks", "show", ":" + stage.ToString(System.Globalization.CultureInfo.InvariantCulture) + ":" + path];
+    public static IReadOnlyList<string> ShowStage(string toplevel, int stage, string path)
+    {
+        var arguments = new List<string>
+        {
+            "-C", toplevel, "--no-optional-locks", "show", "--no-textconv",
+            ":" + stage.ToString(CultureInfo.InvariantCulture) + ":" + path,
+        };
+        KeepLfsPointers(arguments);
+        return arguments;
+    }
 
     public static IReadOnlyList<string> Stage(string toplevel, string path) =>
         ["-C", toplevel, "add", "--", path];
@@ -399,4 +412,81 @@ public static class GitCommands
 
     public static IReadOnlyList<string> AddSafeDirectory(string path) =>
         ["config", "--global", "--add", "safe.directory", path];
+
+    public static IReadOnlyList<string> SubmoduleStatus(string toplevel) =>
+        ["-C", toplevel, "--no-optional-locks", "submodule", "status"];
+
+    public static IReadOnlyList<string> WorktreeList(string toplevel) =>
+        ["-C", toplevel, "--no-optional-locks", "worktree", "list", "--porcelain"];
+
+    public static IReadOnlyList<string> WorktreeAdd(string toplevel, string path, string? newBranch, string? startPoint, bool noCheckout)
+    {
+        var arguments = new List<string> { "-C", toplevel, "worktree", "add" };
+        if (noCheckout)
+            arguments.Add("--no-checkout");
+        if (!string.IsNullOrWhiteSpace(newBranch))
+        {
+            arguments.Add("-b");
+            arguments.Add(newBranch);
+        }
+
+        arguments.Add(path);
+        if (!string.IsNullOrWhiteSpace(startPoint))
+            arguments.Add(startPoint);
+        return arguments;
+    }
+
+    public static IReadOnlyList<string> WorktreeRemove(string toplevel, string path) =>
+        ["-C", toplevel, "worktree", "remove", "--force", path];
+
+    public static IReadOnlyList<string> SparseList(string toplevel) =>
+        ["-C", toplevel, "--no-optional-locks", "sparse-checkout", "list"];
+
+    public static IReadOnlyList<string> SparseSet(string worktree, bool cone, IReadOnlyList<string> patterns)
+    {
+        var arguments = new List<string> { "-C", worktree, "sparse-checkout", "set" };
+        if (!cone)
+            arguments.Add("--no-cone");
+        arguments.Add("--");
+        arguments.AddRange(patterns);
+        return arguments;
+    }
+
+    /// <summary>
+    /// Populates a worktree that was added with --no-checkout. Sparse patterns already written for that worktree stay in force.
+    /// </summary>
+    public static IReadOnlyList<string> CheckoutCurrent(string worktree) =>
+        ["-C", worktree, "checkout"];
+
+    public static string ObjectSpec(string revision, string path)
+    {
+        var gitPath = path.Replace('\\', '/');
+        return revision.Length == 0 ? ":./" + gitPath : revision + ":./" + gitPath;
+    }
+
+    public static IReadOnlyList<string> CatFileSize(string toplevel, string spec) =>
+        ["-C", toplevel, "--no-optional-locks", "cat-file", "-s", "--", spec];
+
+    public static IReadOnlyList<string> CatFileBlob(string toplevel, string spec) =>
+        ["-C", toplevel, "--no-optional-locks", "cat-file", "blob", "--", spec];
+
+    public static IReadOnlyList<string> CatFileFiltered(string toplevel, string spec) =>
+        ["-C", toplevel, "cat-file", "--filters", spec];
+
+    public static IReadOnlyList<string> LfsSmudge(string toplevel) =>
+        ["-C", toplevel, "lfs", "smudge"];
+
+    /// <summary>
+    /// Diff and show stay on the pointer. Clearing the LFS smudge and process filters keeps a normal diff from downloading the blob.
+    /// Text conversion is turned off with --no-textconv on the command. An empty diff.lfs.textconv makes git try to spawn a blank program.
+    /// </summary>
+    private static void KeepLfsPointers(List<string> arguments)
+    {
+        arguments.InsertRange(0,
+        [
+            "-c", "filter.lfs.smudge=",
+            "-c", "filter.lfs.process=",
+            "-c", "filter.lfs.required=false",
+        ]);
+    }
 }

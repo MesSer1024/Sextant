@@ -33,10 +33,16 @@ public sealed class GitProcessRunner
         if (!process.Start())
             throw new InvalidOperationException("Failed to start git.");
 
-        process.StandardInput.Close();
         using var registration = cancellationToken.Register(() => TryKill(process));
         var stdoutTask = ReadAllAsync(process.StandardOutput.BaseStream);
         var stderrTask = ReadStandardErrorAsync(process.StandardError.BaseStream, request.Progress);
+        if (request.StandardInput is { Length: > 0 })
+        {
+            await process.StandardInput.BaseStream.WriteAsync(request.StandardInput, cancellationToken).ConfigureAwait(false);
+            await process.StandardInput.BaseStream.FlushAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        process.StandardInput.Close();
 
         try
         {

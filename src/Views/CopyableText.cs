@@ -30,11 +30,16 @@ public class CopyableText : SelectableTextBlock
         set => SetValue(CopyKeyProperty, value);
     }
 
+    /// <summary>
+    /// Length of the line when the displayed text lives in inlines and <see cref="TextBlock.Text"/> is empty.
+    /// </summary>
+    public int PlainLength { get; set; } = -1;
+
     public int Hit(PointerEventArgs e)
     {
         var point = e.GetPosition(this) - new Point(Padding.Left, Padding.Top);
         var index = TextLayout.HitTestPoint(point).TextPosition;
-        var length = Text?.Length ?? 0;
+        var length = PlainLength >= 0 ? PlainLength : (Text?.Length ?? 0);
         if (index < 0)
             return 0;
         return index > length ? length : index;

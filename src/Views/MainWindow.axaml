@@ -23,6 +23,7 @@
                 <MenuItem x:Name="BranchMenuItem" Header="_Branch…" Command="{Binding ActiveTab.CreateBranchCommand}" IsEnabled="{Binding ActiveTab.CanRunCommands}"/>
                 <MenuItem x:Name="StashMenuItem" Header="_Stash…" Command="{Binding ActiveTab.StashCommand}" IsEnabled="{Binding ActiveTab.CanRunCommands}"/>
                 <MenuItem Header="Add _remote…" Command="{Binding ActiveTab.AddRemoteCommand}" IsEnabled="{Binding ActiveTab.CanRunCommands}"/>
+                <MenuItem Header="Add _worktree…" Command="{Binding ActiveTab.AddWorktreeCommand}" IsEnabled="{Binding ActiveTab.CanRunCommands}"/>
                 <MenuItem Header="Command _log" Command="{Binding ActiveTab.ToggleCommandsCommand}"/>
                 <Separator/>
                 <MenuItem x:Name="SearchMenuItem" Header="_Search" Command="{Binding ActiveTab.ToggleHistorySearchCommand}"/>

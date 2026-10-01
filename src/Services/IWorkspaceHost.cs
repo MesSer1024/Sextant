@@ -51,4 +51,6 @@ public interface IWorkspaceHost
     void NoteLoaded(RepositoryViewModel tab);
 
     void Save();
+
+    Task OpenRepositoryAsync(string path);
 }
