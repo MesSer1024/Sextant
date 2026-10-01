@@ -187,6 +187,7 @@ public class SessionTests
             origin.Run("clone", "--bare", origin.Directory, bare);
             var runner = new GitProcessRunner();
             await RepositoryAdmin.CloneAsync(runner, origin.Git, bare, clone, null, CancellationToken.None);
+            origin.SetIdentity(clone);
             await using var session = await RepositorySession.OpenAsync(runner, origin.Git, clone, CancellationToken.None);
             var branch = session.Snapshot().Branch.HeadName!;
             using (var writer = new StreamWriter(Path.Combine(clone, "a.txt"), append: true))

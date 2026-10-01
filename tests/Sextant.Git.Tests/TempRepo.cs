@@ -13,10 +13,7 @@ public sealed class TempRepo : IDisposable
         Directory = Path.Combine(Path.GetTempPath(), "sextant-test-" + Guid.NewGuid().ToString("N"));
         System.IO.Directory.CreateDirectory(Directory);
         Run("init");
-        Run("config", "user.email", "test@example.com");
-        Run("config", "user.name", "Test");
-        Run("config", "commit.gpgsign", "false");
-        Run("config", "tag.gpgSign", "false");
+        SetIdentity(Directory);
         var hooks = Path.Combine(Directory, ".empty-hooks");
         System.IO.Directory.CreateDirectory(hooks);
         Run("config", "core.hooksPath", hooks);
@@ -42,6 +39,17 @@ public sealed class TempRepo : IDisposable
     }
 
     public string CurrentBranch() => RunCapture("branch", "--show-current").Trim();
+
+    /// <summary>
+    /// Local identity only. A commit must not depend on the machine's global user.name.
+    /// </summary>
+    public void SetIdentity(string directory)
+    {
+        RunIn(directory, "config", "user.email", "test@example.com");
+        RunIn(directory, "config", "user.name", "Test");
+        RunIn(directory, "config", "commit.gpgsign", "false");
+        RunIn(directory, "config", "tag.gpgSign", "false");
+    }
 
     public void Run(params string[] args)
     {
@@ -79,19 +87,28 @@ public sealed class TempRepo : IDisposable
         }
     }
 
-    private (int ExitCode, string Text, string Error) Capture(string[] args)
+    private void RunIn(string directory, params string[] args)
+    {
+        var output = Capture(directory, args);
+        if (output.ExitCode != 0)
+            throw new InvalidOperationException($"git {string.Join(' ', args)} exited {output.ExitCode}{Environment.NewLine}{output.Error}");
+    }
+
+    private (int ExitCode, string Text, string Error) Capture(string[] args) => Capture(Directory, args);
+
+    private (int ExitCode, string Text, string Error) Capture(string directory, string[] args)
     {
         var info = new ProcessStartInfo
         {
             FileName = _git,
-            WorkingDirectory = Directory,
+            WorkingDirectory = directory,
             UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             CreateNoWindow = true,
         };
         info.ArgumentList.Add("-C");
-        info.ArgumentList.Add(Directory);
+        info.ArgumentList.Add(directory);
         foreach (var arg in args)
             info.ArgumentList.Add(arg);
         using var process = Process.Start(info) ?? throw new InvalidOperationException("git did not start.");
