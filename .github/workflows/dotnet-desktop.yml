@@ -4,7 +4,12 @@
 #
 # Sextant is an unpackaged Avalonia app, so this file keeps that workflow's
 # shape and replaces the Windows Application Packaging (MSIX) project with
-# `dotnet publish` for win-x64. There is no .wapproj.
+# `dotnet publish` for win-x64. There is no .wapproj. The macOS job publishes
+# a self-contained osx-arm64 app. On a Mac that publish is a Sextant.app
+# bundle. That bundle is tarred so the app host stays executable, then
+# uploaded with actions/upload-artifact@v7 and archive: false. The artifact
+# name is the filename, Sextant-osx-arm64.tar. The Windows job still uploads
+# a directory, which archive: false does not allow, so it stays on v4.
 #
 # Signing uses the same secrets as the starter workflow. Add them under
 # Settings, Secrets and variables, Actions:
@@ -96,4 +101,55 @@ jobs:
       with:
         name: Sextant-win-x64
         path: artifacts/win-x64
+        if-no-files-found: error
+
+  build-macos:
+    name: macOS arm64
+    runs-on: macos-latest
+
+    env:
+      Solution_Name: Sextant.slnx
+      Project_Path: src/Sextant.csproj
+      Publish_Directory: artifacts/osx-arm64
+      Runtime: osx-arm64
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Install .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 10.0.x
+
+    - name: Execute unit tests
+      run: dotnet test "$Solution_Name" --configuration Release --verbosity normal
+
+    - name: Publish the application
+      run: dotnet publish "$Project_Path" --configuration Release --runtime "$Runtime" --self-contained true --output "$Publish_Directory"
+
+    - name: Check the app bundle
+      run: |
+        app="$Publish_Directory/Sextant.app"
+        test -d "$app/Contents"
+        test -f "$app/Contents/Info.plist"
+        test -f "$app/Contents/Resources/sextant.icns"
+        test -x "$app/Contents/MacOS/Sextant"
+        plutil -lint "$app/Contents/Info.plist"
+        tar -C "$Publish_Directory" -cf artifacts/Sextant-osx-arm64.tar Sextant.app
+        mode="$(tar -tvf artifacts/Sextant-osx-arm64.tar | awk '/Contents\/MacOS\/Sextant$/ { print $1; exit }')"
+        case "$mode" in
+          *x*) ;;
+          *)
+            echo "Sextant is not executable in the archive (mode: ${mode:-missing})." >&2
+            exit 1
+            ;;
+        esac
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v7
+      with:
+        # archive: false ignores name and uses the filename as the artifact name.
+        path: artifacts/Sextant-osx-arm64.tar
+        archive: false
         if-no-files-found: error
