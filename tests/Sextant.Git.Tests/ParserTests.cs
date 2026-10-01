@@ -209,3 +209,89 @@ public class NameStatusAndDiffTests
         Assert.Equal("new name.txt", renamed.Path);
     }
 }
+
+public class ConflictParserTests
+{
+    [Fact]
+    public void Simple_conflict_round_trips_and_take_ours_drops_the_markers()
+    {
+        var text = "before\n<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> other\nafter\n";
+        var pieces = ConflictParser.Parse(text);
+        Assert.Equal(3, pieces.Count);
+        Assert.Equal("before\n", pieces[0].Context);
+        Assert.True(pieces[1].IsConflict);
+        Assert.Equal("ours\n", pieces[1].Ours);
+        Assert.Equal("theirs\n", pieces[1].Theirs);
+        Assert.Null(pieces[1].Base);
+        Assert.Equal("after\n", pieces[2].Context);
+        Assert.Equal(text, ConflictParser.Compose(pieces));
+        Assert.True(ConflictParser.ContainsMarkers(text));
+
+        var taken = pieces.Select(piece => piece.IsConflict ? piece with { Result = piece.Ours } : piece).ToList();
+        var composed = ConflictParser.Compose(taken);
+        Assert.Equal("before\nours\nafter\n", composed);
+        Assert.DoesNotContain("<<<<<<<", composed, StringComparison.Ordinal);
+        Assert.False(ConflictParser.ContainsMarkers(composed));
+    }
+
+    [Fact]
+    public void Diff3_keeps_the_base_and_the_original_line_endings()
+    {
+        var text = "<<<<<<< HEAD\r\nours\r\n||||||| parent\r\nbase\r\n=======\r\ntheirs\r\n>>>>>>> other\r\n";
+        var pieces = ConflictParser.Parse(text);
+        var conflict = Assert.Single(pieces);
+        Assert.Equal("ours\r\n", conflict.Ours);
+        Assert.Equal("base\r\n", conflict.Base);
+        Assert.Equal("theirs\r\n", conflict.Theirs);
+        Assert.Equal(text, ConflictParser.Compose(pieces));
+
+        var taken = ConflictParser.Compose([conflict with { Result = conflict.Theirs }]);
+        Assert.Equal("theirs\r\n", taken);
+        Assert.False(ConflictParser.ContainsMarkers(taken));
+    }
+
+    [Fact]
+    public void Unclosed_marker_stays_context()
+    {
+        var text = "<<<<<<< HEAD\nstuff\n";
+        var piece = Assert.Single(ConflictParser.Parse(text));
+        Assert.False(piece.IsConflict);
+        Assert.Equal(text, piece.Context);
+        Assert.True(ConflictParser.ContainsMarkers(text));
+    }
+
+    [Fact]
+    public void Empty_side_and_a_second_region_stay_separate()
+    {
+        var text = "<<<<<<< HEAD\n=======\ntheirs\n>>>>>>> other\nmiddle\n<<<<<<< HEAD\nours\n=======\n>>>>>>> other\n";
+        var pieces = ConflictParser.Parse(text);
+        Assert.Equal(3, pieces.Count);
+        Assert.Equal("", pieces[0].Ours);
+        Assert.Equal("theirs\n", pieces[0].Theirs);
+        Assert.Equal("middle\n", pieces[1].Context);
+        Assert.Equal("ours\n", pieces[2].Ours);
+        Assert.Equal("", pieces[2].Theirs);
+        Assert.Equal(text, ConflictParser.Compose(pieces));
+    }
+
+    [Fact]
+    public void A_path_must_stay_inside_the_repository()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "sextant-path-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            Assert.NotNull(RepoPath.CombineUnder(root, "a.txt"));
+            Assert.NotNull(RepoPath.CombineUnder(root, "dir/a.txt"));
+            Assert.Null(RepoPath.CombineUnder(root, "../a.txt"));
+            Assert.Null(RepoPath.CombineUnder(root, "dir/../../a.txt"));
+            Assert.Null(RepoPath.CombineUnder(root, "a\0.txt"));
+            Assert.Null(RepoPath.CombineUnder(root, "a\n.txt"));
+            Assert.Null(RepoPath.CombineUnder(root, Path.Combine(root, "a.txt")));
+        }
+        finally
+        {
+            Directory.Delete(root);
+        }
+    }
+}

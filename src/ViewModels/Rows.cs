@@ -244,6 +244,47 @@ public sealed class BlameRow
     public required string Text { get; init; }
 }
 
+public partial class MergeRegionRow : ObservableObject
+{
+    public bool IsConflict { get; init; }
+
+    public bool IsContext => !IsConflict;
+
+    public string Context { get; init; } = "";
+
+    public string Ours { get; init; } = "";
+
+    public string Theirs { get; init; } = "";
+
+    public string BaseText { get; init; } = "";
+
+    public bool HasBase { get; init; }
+
+    public string OursDisplay => Ours.Length == 0 ? "(empty)" : Ours;
+
+    public string TheirsDisplay => Theirs.Length == 0 ? "(empty)" : Theirs;
+
+    public string BaseDisplay => HasBase
+        ? (BaseText.Length == 0 ? "(empty)" : BaseText)
+        : "No base in this region.";
+
+    public bool ShowBaseSection => IsConflict && ShowBase;
+
+    [ObservableProperty]
+    public partial string Result { get; set; } = "";
+
+    [ObservableProperty]
+    public partial bool ShowBase { get; set; }
+
+    partial void OnShowBaseChanged(bool value) => OnPropertyChanged(nameof(ShowBaseSection));
+
+    [RelayCommand]
+    private void TakeOurs() => Result = Ours;
+
+    [RelayCommand]
+    private void TakeTheirs() => Result = Theirs;
+}
+
 public sealed class PaletteItem
 {
     public required string Title { get; init; }

@@ -336,6 +336,40 @@ public class SessionTests
     }
 
     [Fact]
+    public async Task Delete_removes_a_merged_branch()
+    {
+        using var repo = new TempRepo();
+        repo.WriteFile("a.txt", "base\n");
+        repo.CommitAll("base");
+        var trunk = repo.CurrentBranch();
+        repo.Run("switch", "-c", "side");
+        repo.Run("switch", trunk);
+        await using var session = await Open(repo);
+        await session.DeleteBranchAsync("side", CancellationToken.None);
+        Assert.DoesNotContain(session.Snapshot().Refs, reference => reference.Name == "refs/heads/side");
+    }
+
+    [Fact]
+    public async Task Force_delete_removes_a_branch_that_is_not_fully_merged()
+    {
+        using var repo = new TempRepo();
+        repo.WriteFile("a.txt", "base\n");
+        repo.CommitAll("base");
+        var trunk = repo.CurrentBranch();
+        repo.Run("switch", "-c", "side");
+        repo.WriteFile("a.txt", "side\n");
+        repo.CommitAll("side");
+        repo.Run("switch", trunk);
+        await using var session = await Open(repo);
+        var failure = await Assert.ThrowsAsync<GitCommandFailedException>(() => session.DeleteBranchAsync("side", CancellationToken.None));
+        Assert.Contains("not fully merged", failure.StandardError, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(session.Snapshot().Refs, reference => reference.Name == "refs/heads/side");
+
+        await session.ForceDeleteBranchAsync("side", CancellationToken.None);
+        Assert.DoesNotContain(session.Snapshot().Refs, reference => reference.Name == "refs/heads/side");
+    }
+
+    [Fact]
     public async Task Cancelling_the_runner_kills_the_process()
     {
         var runner = new GitProcessRunner();

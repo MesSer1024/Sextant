@@ -618,6 +618,10 @@ public partial class RepositoryViewModel : ViewModelBase
         {
             Fail(exception.Message);
         }
+        catch (RepositoryActionException exception)
+        {
+            Fail(exception.Message);
+        }
         finally
         {
             IsBusy = false;
@@ -701,10 +705,10 @@ public partial class RepositoryViewModel : ViewModelBase
             IsConflicted = state.Sequencer != SequencerKind.None;
             ConflictText = state.Sequencer switch
             {
-                SequencerKind.Rebase => "Rebase in progress. Resolve the files, stage them, and continue, or abort the rebase.",
-                SequencerKind.CherryPick => "Cherry-pick in progress. Resolve the files, stage them, and continue, or abort the cherry-pick.",
-                SequencerKind.Revert => "Revert in progress. Resolve the files, stage them, and continue, or abort the revert.",
-                _ => "Merge in progress. Resolve the files, stage them, and continue, or abort the merge.",
+                SequencerKind.Rebase => "Rebase in progress. Resolve each file in the editor, save and stage, then continue, or abort the rebase.",
+                SequencerKind.CherryPick => "Cherry-pick in progress. Resolve each file in the editor, save and stage, then continue, or abort the cherry-pick.",
+                SequencerKind.Revert => "Revert in progress. Resolve each file in the editor, save and stage, then continue, or abort the revert.",
+                _ => "Merge in progress. Resolve each file in the editor, save and stage, then continue, or abort the merge.",
             };
             HistoryCaption = state.HistoryLabel ?? "";
             HasHistoryFilter = state.HistoryLabel is { Length: > 0 };
@@ -1163,14 +1167,34 @@ public partial class RepositoryViewModel : ViewModelBase
     {
         if (_host.Dialogs is null || _session is null || IsBusy)
             return;
-        var ok = await _host.Dialogs.ConfirmAsync(
-            "Delete branch",
-            $"Delete {name}? Git uses branch -d and refuses a branch that is not merged.",
-            "Delete");
-        if (!ok)
+        var ok = await _host.Dialogs.ConfirmAsync("Delete branch", $"Delete {name}?", "Delete");
+        if (!ok || _session is null)
             return;
-        await RunAsync("Deleting branch…", ct => _session.DeleteBranchAsync(name, ct));
+        var unmerged = false;
+        await RunAsync("Deleting branch…", async ct =>
+        {
+            try
+            {
+                await _session.DeleteBranchAsync(name, ct);
+            }
+            catch (GitCommandFailedException exception) when (IsNotFullyMerged(exception))
+            {
+                unmerged = true;
+            }
+        });
+        if (!unmerged || _host.Dialogs is null || _session is null)
+            return;
+        var force = await _host.Dialogs.ConfirmAsync(
+            "Force delete branch",
+            $"{name} is not fully merged. Force delete removes it anyway.",
+            "Force delete");
+        if (!force || _session is null)
+            return;
+        await RunAsync("Deleting branch…", ct => _session.ForceDeleteBranchAsync(name, ct));
     }
+
+    private static bool IsNotFullyMerged(GitCommandFailedException exception) =>
+        exception.StandardError.Contains("not fully merged", StringComparison.OrdinalIgnoreCase);
 
     private async Task SetUpstreamNamedAsync(string branch)
     {
@@ -1414,12 +1438,22 @@ public partial class RepositoryViewModel : ViewModelBase
             return;
         }
 
+        var merge = workingCopy && !AllFiles && file!.Kind == ChangeKind.Unmerged;
+        if (!merge)
+            ClearMerge();
+
         ReplaceDetails();
         var token = _details!.Token;
         var allowLarge = _allowLarge;
         var ignoreWhitespace = IgnoreWhitespace;
         try
         {
+            if (merge)
+            {
+                await LoadMergeAsync(file!, allowLarge, token);
+                return;
+            }
+
             DiffDocument? document;
             if (range)
             {
@@ -1457,10 +1491,68 @@ public partial class RepositoryViewModel : ViewModelBase
         {
             Fail(exception.Message);
         }
+        catch (RepositoryActionException exception)
+        {
+            Fail(exception.Message);
+        }
+    }
+
+    private async Task LoadMergeAsync(FileRowViewModel file, bool allowLarge, CancellationToken token)
+    {
+        var document = await _session!.ConflictAsync(file.Path, allowLarge, token);
+        if (document is null || token.IsCancellationRequested)
+            return;
+        if (document.IsTooLarge)
+        {
+            ClearDiff("This diff is large. Load it only if you need the whole file.");
+            ShowLoadDiff = true;
+            return;
+        }
+
+        if (document.IsBinary)
+        {
+            ClearDiff("This conflict is binary. Open it in the external merge tool.");
+            return;
+        }
+
+        var rows = new List<MergeRegionRow>(document.Pieces.Count);
+        foreach (var piece in document.Pieces)
+        {
+            rows.Add(new MergeRegionRow
+            {
+                IsConflict = piece.IsConflict,
+                Context = piece.Context,
+                Ours = piece.Ours,
+                Theirs = piece.Theirs,
+                BaseText = piece.Base ?? "",
+                HasBase = piece.Base is not null,
+                Result = piece.Result,
+                ShowBase = ShowMergeBase,
+            });
+        }
+
+        MergeRegions.Reset(rows);
+        _mergePath = file.Path;
+        DiffRows.Clear();
+        BlameRows.Clear();
+        _rawPatch = null;
+        ShowLoadDiff = false;
+        HasDiffNotice = false;
+        DiffNotice = "";
+        ShowingMerge = true;
+    }
+
+    private void ClearMerge()
+    {
+        ShowingMerge = false;
+        _mergePath = null;
+        if (MergeRegions.Count > 0)
+            MergeRegions.Reset([]);
     }
 
     private void RenderDiff(DiffDocument document, FileRowViewModel? file, bool workingCopy)
     {
+        ClearMerge();
         DiffRows.Clear();
         BlameRows.Clear();
         _rawPatch = document.RawPatch;
@@ -1662,6 +1754,7 @@ public partial class RepositoryViewModel : ViewModelBase
 
     private void ClearDiff(string notice)
     {
+        ClearMerge();
         DiffRows.Clear();
         BlameRows.Clear();
         _rawPatch = null;

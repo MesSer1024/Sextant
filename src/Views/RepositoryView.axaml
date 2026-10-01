@@ -246,11 +246,18 @@
                         <Button Classes="flat" Content="{Binding WhitespaceLabel}" Command="{Binding ToggleWhitespaceCommand}" Margin="0,0,4,4"/>
                         <Button Classes="flat" Content="{Binding FilesModeLabel}" Command="{Binding ToggleAllFilesCommand}" Margin="0,0,4,4"/>
                         <Button Classes="flat" Content="{Binding BlameLabel}" Command="{Binding ToggleBlameCommand}" Margin="0,0,4,4"/>
+                        <Button Classes="flat" Content="{Binding MergeBaseLabel}" Command="{Binding ToggleMergeBaseCommand}" IsVisible="{Binding ShowingMerge}" Margin="0,0,4,4"/>
+                        <Button Classes="flat" Content="Save and stage" Command="{Binding SaveConflictCommand}" IsVisible="{Binding ShowingMerge}" Margin="0,0,4,4"/>
                     </WrapPanel>
                     <StackPanel DockPanel.Dock="Top" Margin="8,4">
                         <TextBlock Text="{Binding DiffNotice}" IsVisible="{Binding HasDiffNotice}" TextWrapping="Wrap" Opacity="0.75"/>
                         <Button Classes="flat" Content="Load anyway" Command="{Binding LoadLargeDiffCommand}" IsVisible="{Binding ShowLoadDiff}" HorizontalAlignment="Left" Margin="0,4,0,0"/>
                     </StackPanel>
+                    <Grid DockPanel.Dock="Top" IsVisible="{Binding ShowingMerge}" ColumnDefinitions="*,8,*,8,*" Margin="8,4,8,0">
+                        <TextBlock Text="Ours" FontWeight="SemiBold" Opacity="0.75"/>
+                        <TextBlock Grid.Column="2" Text="Result" FontWeight="SemiBold" Opacity="0.75"/>
+                        <TextBlock Grid.Column="4" Text="Theirs" FontWeight="SemiBold" Opacity="0.75"/>
+                    </Grid>
                     <Grid>
                         <ListBox ItemsSource="{Binding DiffRows}" Background="Transparent" IsVisible="{Binding ShowingDiff}">
                             <ListBox.ItemsPanel>
@@ -298,6 +305,33 @@
                                 </DataTemplate>
                             </ListBox.ItemTemplate>
                         </ListBox>
+                        <ScrollViewer IsVisible="{Binding ShowingMerge}" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                            <ItemsControl ItemsSource="{Binding MergeRegions}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:MergeRegionRow">
+                                        <StackPanel Margin="8,4,8,8">
+                                            <TextBlock Classes="diff" Text="{Binding Context}" TextWrapping="Wrap" IsVisible="{Binding IsContext}"/>
+                                            <Grid ColumnDefinitions="*,8,*,8,*" IsVisible="{Binding IsConflict}">
+                                                <StackPanel>
+                                                    <Button Classes="flat" Content="Take ours" Command="{Binding TakeOursCommand}" HorizontalAlignment="Left" Margin="0,0,0,4"/>
+                                                    <TextBlock Classes="diff" Text="{Binding OursDisplay}" TextWrapping="Wrap"/>
+                                                </StackPanel>
+                                                <TextBox Grid.Column="2" Classes="diff" Text="{Binding Result, Mode=TwoWay}" AcceptsReturn="True" TextWrapping="Wrap"
+                                                         MinHeight="72" MaxHeight="280" VerticalContentAlignment="Top"/>
+                                                <StackPanel Grid.Column="4">
+                                                    <Button Classes="flat" Content="Take theirs" Command="{Binding TakeTheirsCommand}" HorizontalAlignment="Left" Margin="0,0,0,4"/>
+                                                    <TextBlock Classes="diff" Text="{Binding TheirsDisplay}" TextWrapping="Wrap"/>
+                                                </StackPanel>
+                                            </Grid>
+                                            <StackPanel IsVisible="{Binding ShowBaseSection}" Margin="0,6,0,0" Spacing="2">
+                                                <TextBlock Text="Base" Opacity="0.65" FontSize="12"/>
+                                                <TextBlock Classes="diff" Text="{Binding BaseDisplay}" TextWrapping="Wrap"/>
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
                     </Grid>
                 </DockPanel>
             </Grid>

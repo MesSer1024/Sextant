@@ -240,6 +240,9 @@ public static class GitCommands
         return arguments;
     }
 
+    public static IReadOnlyList<string> ShowStage(string toplevel, int stage, string path) =>
+        ["-C", toplevel, "--no-optional-locks", "show", ":" + stage.ToString(System.Globalization.CultureInfo.InvariantCulture) + ":" + path];
+
     public static IReadOnlyList<string> Stage(string toplevel, string path) =>
         ["-C", toplevel, "add", "--", path];
 
@@ -311,6 +314,9 @@ public static class GitCommands
 
     public static IReadOnlyList<string> DeleteBranch(string toplevel, string name) =>
         ["-C", toplevel, "branch", "-d", name];
+
+    public static IReadOnlyList<string> ForceDeleteBranch(string toplevel, string name) =>
+        ["-C", toplevel, "branch", "-D", name];
 
     public static IReadOnlyList<string> SetUpstream(string toplevel, string branch, string upstream) =>
         ["-C", toplevel, "branch", "--set-upstream-to=" + upstream, branch];

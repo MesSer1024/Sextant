@@ -495,6 +495,7 @@ public partial class MainViewModel : ViewModelBase, IWorkspaceHost
             {
                 _palette.Add(new PaletteItem { Title = "Continue", Run = tab.ContinueSequencer });
                 _palette.Add(new PaletteItem { Title = "Abort", Run = tab.AbortMerge });
+                _palette.Add(new PaletteItem { Title = "Save conflict resolution", Run = tab.SaveConflict });
             }
             _palette.Add(new PaletteItem { Title = "Toggle command log", Run = () => { tab.CommandsOpen = !tab.CommandsOpen; return Task.CompletedTask; } });
         }

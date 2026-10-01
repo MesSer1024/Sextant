@@ -40,9 +40,21 @@ public partial class RepositoryViewModel
     [ObservableProperty]
     public partial bool ShowingBlame { get; set; }
 
-    public bool ShowingDiff => !ShowingBlame;
+    [ObservableProperty]
+    public partial bool ShowingMerge { get; set; }
+
+    [ObservableProperty]
+    public partial bool ShowMergeBase { get; set; }
+
+    public ResetCollection<MergeRegionRow> MergeRegions { get; } = [];
+
+    private string? _mergePath;
+
+    public bool ShowingDiff => !ShowingBlame && !ShowingMerge;
 
     public string SideBySideLabel => SideBySide ? "Inline" : "Side by side";
+
+    public string MergeBaseLabel => ShowMergeBase ? "Hide base" : "Show base";
 
     public string WhitespaceLabel => IgnoreWhitespace ? "Show whitespace" : "Ignore whitespace";
 
@@ -68,6 +80,36 @@ public partial class RepositoryViewModel
     {
         OnPropertyChanged(nameof(ShowingDiff));
         OnPropertyChanged(nameof(BlameLabel));
+    }
+
+    partial void OnShowingMergeChanged(bool value) => OnPropertyChanged(nameof(ShowingDiff));
+
+    partial void OnShowMergeBaseChanged(bool value)
+    {
+        OnPropertyChanged(nameof(MergeBaseLabel));
+        foreach (var row in MergeRegions)
+            row.ShowBase = value;
+    }
+
+    [RelayCommand]
+    private void ToggleMergeBase() => ShowMergeBase = !ShowMergeBase;
+
+    [RelayCommand]
+    public async Task SaveConflict()
+    {
+        if (_session is null || !ShowingMerge || string.IsNullOrEmpty(_mergePath))
+            return;
+        var pieces = new List<ConflictPiece>(MergeRegions.Count);
+        foreach (var row in MergeRegions)
+        {
+            pieces.Add(row.IsConflict
+                ? new ConflictPiece(true, "", row.Ours, row.Theirs, row.HasBase ? row.BaseText : null, row.Result)
+                : ConflictPiece.FromContext(row.Context));
+        }
+
+        var text = ConflictParser.Compose(pieces);
+        var path = _mergePath;
+        await RunAsync("Saving resolution…", ct => _session.SaveResolutionAsync(path, text, ct));
     }
 
     public void NoteGraphSelection(IReadOnlyList<GraphRowViewModel> rows)
@@ -320,6 +362,7 @@ public partial class RepositoryViewModel
     {
         if (_lifetime.IsCancellationRequested)
             return;
+        ClearMerge();
         var file = SelectedFile;
         if (file is null || file.IsHeader || _session is null)
         {

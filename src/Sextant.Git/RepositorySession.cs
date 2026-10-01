@@ -239,6 +239,59 @@ public sealed class RepositorySession : IAsyncDisposable
         }, cancellationToken);
     }
 
+    public Task<ConflictDocument?> ConflictAsync(string path, bool allowLarge, CancellationToken cancellationToken)
+    {
+        var full = RepoPath.CombineUnder(_toplevel, path);
+        if (full is null)
+            throw new RepositoryActionException("That path is outside the repository.");
+        var token = _diffGate.Next();
+        return RunAsync(async ct =>
+        {
+            var document = await _scheduler.ReadAsync(async inner =>
+            {
+                byte[] worktree;
+                try
+                {
+                    worktree = File.Exists(full)
+                        ? await File.ReadAllBytesAsync(full, inner).ConfigureAwait(false)
+                        : [];
+                }
+                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+                {
+                    throw new RepositoryActionException("Could not read the conflicted file. " + exception.Message);
+                }
+
+                if (ContainsNul(worktree))
+                    return ConflictDocument.Binary;
+                if (!allowLarge && worktree.Length > HistoryLimits.MaxDiffBytes)
+                    return ConflictDocument.TooLarge;
+
+                var ours = await ReadStageAsync(2, path, inner).ConfigureAwait(false);
+                var theirs = await ReadStageAsync(3, path, inner).ConfigureAwait(false);
+                var baseBytes = await ReadStageAsync(1, path, inner).ConfigureAwait(false);
+                if (ContainsNul(ours) || ContainsNul(theirs) || ContainsNul(baseBytes))
+                    return ConflictDocument.Binary;
+                if (!allowLarge && (ours.Length > HistoryLimits.MaxDiffBytes || theirs.Length > HistoryLimits.MaxDiffBytes || baseBytes.Length > HistoryLimits.MaxDiffBytes))
+                    return ConflictDocument.TooLarge;
+
+                var workText = Encoding.UTF8.GetString(worktree);
+                var pieces = ConflictParser.Parse(workText);
+                if (pieces.Any(piece => piece.IsConflict))
+                    return new ConflictDocument(false, false, false, pieces);
+
+                var synthetic = new ConflictPiece(
+                    true,
+                    "",
+                    Encoding.UTF8.GetString(ours),
+                    Encoding.UTF8.GetString(theirs),
+                    Encoding.UTF8.GetString(baseBytes),
+                    workText);
+                return new ConflictDocument(false, false, true, [synthetic]);
+            }, ct).ConfigureAwait(false);
+            return _diffGate.IsCurrent(token) ? document : null;
+        }, cancellationToken);
+    }
+
     public Task SetHistoryAsync(HistoryQuery? query, CancellationToken cancellationToken) =>
         RunAsync(async ct =>
         {
@@ -442,6 +495,9 @@ public sealed class RepositorySession : IAsyncDisposable
     public Task DeleteBranchAsync(string name, CancellationToken cancellationToken) =>
         MutateAsync(GitCommands.DeleteBranch(_toplevel, name), null, cancellationToken);
 
+    public Task ForceDeleteBranchAsync(string name, CancellationToken cancellationToken) =>
+        MutateAsync(GitCommands.ForceDeleteBranch(_toplevel, name), null, cancellationToken);
+
     public Task SetUpstreamAsync(string branch, string upstream, CancellationToken cancellationToken) =>
         MutateAsync(GitCommands.SetUpstream(_toplevel, branch, upstream), null, cancellationToken);
 
@@ -465,6 +521,57 @@ public sealed class RepositorySession : IAsyncDisposable
 
     public Task MergetoolAsync(string path, CancellationToken cancellationToken) =>
         MutateAsync(GitCommands.Mergetool(_toplevel, path), null, cancellationToken);
+
+    public Task SaveResolutionAsync(string path, string text, CancellationToken cancellationToken)
+    {
+        var full = RepoPath.CombineUnder(_toplevel, path);
+        if (full is null)
+            throw new RepositoryActionException("That path is outside the repository.");
+        return RunAsync(async ct =>
+        {
+            // Markers stay in the working tree so the edit is kept, and the path stays unmerged.
+            var markers = ConflictParser.ContainsMarkers(text);
+            GitCommandFailedException? failure = null;
+            try
+            {
+                await _scheduler.WriteAsync(async token =>
+                {
+                    try
+                    {
+                        var parent = Path.GetDirectoryName(full);
+                        if (!string.IsNullOrEmpty(parent))
+                            Directory.CreateDirectory(parent);
+                        await File.WriteAllTextAsync(full, text, new UTF8Encoding(false), token).ConfigureAwait(false);
+                    }
+                    catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+                    {
+                        throw new RepositoryActionException("Could not write the resolved file. " + exception.Message);
+                    }
+
+                    if (!markers)
+                        Checked(await ExecuteAsync(GitCommands.Stage(_toplevel, path), null, token).ConfigureAwait(false));
+                    return 0;
+                }, ct).ConfigureAwait(false);
+            }
+            catch (GitCommandFailedException exception)
+            {
+                failure = exception;
+            }
+
+            try
+            {
+                await LoadRefsAndMaybeHistoryAsync(ct, statusAlreadyApplied: false).ConfigureAwait(false);
+            }
+            catch (GitCommandFailedException) when (failure is not null)
+            {
+            }
+
+            if (failure is not null)
+                throw failure;
+            if (markers)
+                throw new RepositoryActionException("Conflict markers are still in the file. The working copy was saved, and the path stays unmerged until the markers are gone.");
+        }, cancellationToken);
+    }
 
     public Task SetLocalConfigAsync(string key, string value, CancellationToken cancellationToken) =>
         RunAsync(async ct =>
@@ -896,6 +1003,15 @@ public sealed class RepositorySession : IAsyncDisposable
             }, ct).ConfigureAwait(false);
             return _diffGate.IsCurrent(token) ? document : null;
         }, cancellationToken);
+
+    private async Task<byte[]> ReadStageAsync(int stage, string path, CancellationToken cancellationToken)
+    {
+        var output = await ExecuteAsync(GitCommands.ShowStage(_toplevel, stage, path), null, cancellationToken).ConfigureAwait(false);
+        Track(output);
+        return output.ExitCode == 0 ? output.Stdout : [];
+    }
+
+    private static bool ContainsNul(byte[] data) => Array.IndexOf(data, (byte)0) >= 0;
 
     private async Task<DiffDocument> DiffUntrackedAsync(string path, bool allowLarge, bool ignoreWhitespace, CancellationToken cancellationToken)
     {

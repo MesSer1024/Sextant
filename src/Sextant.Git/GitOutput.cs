@@ -28,6 +28,14 @@ public sealed class GitRequest
     public IReadOnlyDictionary<string, string>? Environment { get; init; }
 }
 
+public sealed class RepositoryActionException : Exception
+{
+    public RepositoryActionException(string message)
+        : base(message)
+    {
+    }
+}
+
 public sealed class GitCommandFailedException : Exception
 {
     public GitCommandFailedException(GitOutput output)

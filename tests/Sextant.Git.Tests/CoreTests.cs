@@ -33,6 +33,8 @@ public class CoreTests
         Assert.Equal(":", GitCommands.UnstageAll("repo")[^1]);
         Assert.Equal(["rm", "-r", "--cached", "-f", "--", "."], GitCommands.UnstageAllUnborn("repo").Skip(2));
         Assert.DoesNotContain("--no-optional-locks", GitCommands.Fetch("repo"));
+        Assert.Equal(["-C", "repo", "branch", "-d", "topic"], GitCommands.DeleteBranch("repo", "topic"));
+        Assert.Equal(["-C", "repo", "branch", "-D", "topic"], GitCommands.ForceDeleteBranch("repo", "topic"));
         Assert.Contains("--no-edit", GitCommands.Merge("repo", "topic"));
         Assert.Contains("--no-edit", GitCommands.Pull("repo"));
         Assert.Contains("--", GitCommands.Stage("repo", "a file.txt"));

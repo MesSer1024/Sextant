@@ -15,4 +15,28 @@ public static class RepoPath
             : StringComparison.Ordinal;
         return string.Equals(Normalize(left), Normalize(right), comparison);
     }
+
+    public static string? CombineUnder(string toplevel, string relative)
+    {
+        if (string.IsNullOrEmpty(relative) || relative.Contains('\0') || relative.Contains('\n') || relative.Contains('\r'))
+            return null;
+        if (Path.IsPathRooted(relative))
+            return null;
+        var segments = relative.Split('/', '\\');
+        foreach (var segment in segments)
+        {
+            if (segment == "..")
+                return null;
+        }
+
+        var root = Normalize(toplevel);
+        var full = Path.GetFullPath(Path.Combine(root, relative.Replace('/', Path.DirectorySeparatorChar)));
+        var comparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+        var prefix = root + Path.DirectorySeparatorChar;
+        if (!full.StartsWith(prefix, comparison))
+            return null;
+        return full;
+    }
 }
