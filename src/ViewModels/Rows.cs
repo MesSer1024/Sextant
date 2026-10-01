@@ -220,6 +220,9 @@ public sealed class DiffLineRow : DiffRow
 {
     public required string Text { get; init; }
 
+    /// <summary>This row is the rest of the previous logical line. Copy does not insert a break.</summary>
+    public bool Continues { get; init; }
+
     public string? Language { get; init; }
 
     public required IBrush Background { get; init; }
@@ -236,6 +239,14 @@ public sealed class DiffSideRow : DiffRow
     public required string Left { get; init; }
 
     public required string Right { get; init; }
+
+    public bool SkipLeftCopy { get; init; }
+
+    public bool SkipRightCopy { get; init; }
+
+    public bool LeftContinues { get; init; }
+
+    public bool RightContinues { get; init; }
 
     public string? Language { get; init; }
 
@@ -256,6 +267,9 @@ public sealed class BlameRow
     public required string Meta { get; init; }
 
     public required string Text { get; init; }
+
+    /// <summary>This row is the rest of the previous logical line. Copy does not insert a break.</summary>
+    public bool Continues { get; init; }
 }
 
 public partial class MergeRegionRow : ObservableObject

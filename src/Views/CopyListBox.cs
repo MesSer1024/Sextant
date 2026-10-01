@@ -238,7 +238,7 @@ public class CopyListBox : ListBox
     }
 
     private string SelectedString() =>
-        _key is null ? "" : LineCopy.Join(Lines(_key), _anchorLine, _anchorChar, _focusLine, _focusChar);
+        _key is null ? "" : LineCopy.Join(Lines(_key), _anchorLine, _anchorChar, _focusLine, _focusChar, Continuations(_key));
 
     private string?[] Lines(string key)
     {
@@ -247,6 +247,15 @@ public class CopyListBox : ListBox
         for (var i = 0; i < items.Count; i++)
             lines[i] = CopyText.Of(items[i], key);
         return lines;
+    }
+
+    private bool[] Continuations(string key)
+    {
+        var items = (IList)Items;
+        var flags = new bool[items.Count];
+        for (var i = 0; i < items.Count; i++)
+            flags[i] = CopyText.Continues(items[i], key);
+        return flags;
     }
 
     private bool Any(string key)

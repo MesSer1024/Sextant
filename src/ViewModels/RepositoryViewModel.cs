@@ -2,12 +2,14 @@ using Avalonia.Media;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Sextant;
 using Sextant.Git;
 using Sextant.Git.Parsing;
 using Sextant.Services;
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Text;
+using System.Windows.Input;
 
 namespace Sextant.ViewModels;
 
@@ -1813,16 +1815,27 @@ public partial class RepositoryViewModel : ViewModelBase
             };
             var show = parts && line.Kind is DiffLineKind.Added or DiffLineKind.Removed;
             var captured = lineIndex;
+            var command = show
+                ? new AsyncRelayCommand(() => ApplyShownLineAsync(patch, hunkIndex, captured))
+                : UiCommands.Disabled;
+            AddFoldedLine(prefix + line.Text, _lineLanguage, background, show, lineLabel, command);
+        }
+    }
+
+    private void AddFoldedLine(string text, string? language, IBrush background, bool showAction, string actionLabel, ICommand command)
+    {
+        var count = LineFold.Count(text);
+        for (var index = 0; index < count; index++)
+        {
             DiffRows.Add(new DiffLineRow
             {
-                Text = prefix + line.Text,
-                Language = _lineLanguage,
+                Text = LineFold.Piece(text, index) ?? "",
+                Language = language,
                 Background = background,
-                ShowAction = show,
-                ActionLabel = lineLabel,
-                ActionCommand = show
-                    ? new AsyncRelayCommand(() => ApplyShownLineAsync(patch, hunkIndex, captured))
-                    : UiCommands.Disabled,
+                Continues = index > 0,
+                ShowAction = index == 0 && showAction,
+                ActionLabel = index == 0 ? actionLabel : "",
+                ActionCommand = index == 0 ? command : UiCommands.Disabled,
             });
         }
     }
@@ -1861,14 +1874,24 @@ public partial class RepositoryViewModel : ViewModelBase
 
     private void AddSide(string left, IBrush leftBackground, string right, IBrush rightBackground)
     {
-        DiffRows.Add(new DiffSideRow
+        var rows = Math.Max(LineFold.Count(left), LineFold.Count(right));
+        for (var index = 0; index < rows; index++)
         {
-            Left = left,
-            Right = right,
-            Language = _lineLanguage,
-            LeftBackground = leftBackground,
-            RightBackground = rightBackground,
-        });
+            var leftPiece = LineFold.Piece(left, index);
+            var rightPiece = LineFold.Piece(right, index);
+            DiffRows.Add(new DiffSideRow
+            {
+                Left = leftPiece ?? "",
+                Right = rightPiece ?? "",
+                SkipLeftCopy = leftPiece is null,
+                SkipRightCopy = rightPiece is null,
+                LeftContinues = index > 0 && leftPiece is not null,
+                RightContinues = index > 0 && rightPiece is not null,
+                Language = _lineLanguage,
+                LeftBackground = leftPiece is null ? DiffColors.Clear : leftBackground,
+                RightBackground = rightPiece is null ? DiffColors.Clear : rightBackground,
+            });
+        }
     }
 
     private static bool CanStageParts(bool workingCopy, ChangeKind kind, DiffDocument document) =>

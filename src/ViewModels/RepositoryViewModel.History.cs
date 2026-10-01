@@ -1,5 +1,6 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Sextant;
 using Sextant.Git;
 using Sextant.Git.Parsing;
 using System.Collections.ObjectModel;
@@ -409,12 +410,19 @@ public partial class RepositoryViewModel
             {
                 var who = line.Uncommitted ? "Not committed" : line.Author;
                 var id = line.Sha.Length <= 7 ? line.Sha : line.Sha[..7];
-                BlameRows.Add(new BlameRow
+                var number = line.Number.ToString(CultureInfo.InvariantCulture);
+                var meta = id + "  " + who;
+                var count = LineFold.Count(line.Text);
+                for (var index = 0; index < count; index++)
                 {
-                    Number = line.Number.ToString(CultureInfo.InvariantCulture),
-                    Meta = id + "  " + who,
-                    Text = line.Text,
-                });
+                    BlameRows.Add(new BlameRow
+                    {
+                        Number = index == 0 ? number : "",
+                        Meta = index == 0 ? meta : "",
+                        Text = LineFold.Piece(line.Text, index) ?? "",
+                        Continues = index > 0,
+                    });
+                }
             }
         }
         catch (OperationCanceledException)

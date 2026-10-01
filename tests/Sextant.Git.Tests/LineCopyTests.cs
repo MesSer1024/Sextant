@@ -26,6 +26,15 @@ public class LineCopyTests
     }
 
     [Fact]
+    public void Folded_rows_copy_as_one_line()
+    {
+        string?[] lines = ["abc", "def", null, "ghi"];
+        bool[] continues = [false, true, false, false];
+        Assert.Equal("abcdef\nghi", LineCopy.Join(lines, 0, 0, 3, 3, continues));
+        Assert.Equal("bcdef", LineCopy.Join(lines, 0, 1, 1, 3, continues));
+    }
+
+    [Fact]
     public void Select_all_keeps_blank_lines()
     {
         string?[] lines = ["a", "", "c"];

@@ -6,7 +6,13 @@ namespace Sextant;
 /// </summary>
 public static class LineCopy
 {
-    public static string Join(IReadOnlyList<string?> lines, int anchorLine, int anchorChar, int focusLine, int focusChar)
+    public static string Join(
+        IReadOnlyList<string?> lines,
+        int anchorLine,
+        int anchorChar,
+        int focusLine,
+        int focusChar,
+        IReadOnlyList<bool>? continues = null)
     {
         if (!Ordered(lines, ref anchorLine, ref anchorChar, ref focusLine, ref focusChar))
             return "";
@@ -22,7 +28,8 @@ public static class LineCopy
             var end = line == focusLine ? Math.Clamp(focusChar, 0, text.Length) : text.Length;
             if (end < start)
                 end = start;
-            if (any)
+            var soft = continues is not null && (uint)line < (uint)continues.Count && continues[line];
+            if (any && !soft)
                 builder.Append('\n');
             any = true;
             builder.Append(text, start, end - start);

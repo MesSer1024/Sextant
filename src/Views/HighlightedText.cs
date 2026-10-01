@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls.Documents;
 using Avalonia.Media;
 using Avalonia.Styling;
+using Sextant;
 
 namespace Sextant.Views;
 
@@ -54,6 +55,9 @@ public class HighlightedText : CopyableText
         if (_paint > 0)
             return;
         var text = Source ?? "";
+        // A row is folded before it is shown. A longer value still must not build a run per character.
+        if (text.Length > LineFold.Columns)
+            text = text[..LineFold.Columns];
         var spans = DiffSyntax.Tokenize(text, Language);
         var colored = false;
         foreach (var span in spans)

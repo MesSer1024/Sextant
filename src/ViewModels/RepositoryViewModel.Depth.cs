@@ -569,14 +569,7 @@ public partial class RepositoryViewModel
         var language = DiffSyntax.Language(path);
         DiffRows.Add(new DiffFileRow { Label = path + "  (loaded)" });
         foreach (var line in lines)
-        {
-            DiffRows.Add(new DiffLineRow
-            {
-                Text = "  " + line,
-                Language = language,
-                Background = DiffColors.Clear,
-            });
-        }
+            AddFoldedLine("  " + line, language, DiffColors.Clear, false, "", UiCommands.Disabled);
 
         ShowLfsDownload = false;
         HasLfsNotice = true;

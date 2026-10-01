@@ -170,15 +170,24 @@ public static class CopyText
         DiffLineRow row when key == "body" => row.Text,
         DiffHunkRow row when key is "body" or "left" or "right" or "span" => row.Header,
         DiffFileRow row when key is "body" or "left" or "right" or "span" => row.Label,
-        DiffSideRow row when key == "left" => row.Left,
-        DiffSideRow row when key == "right" => row.Right,
+        DiffSideRow row when key == "left" => row.SkipLeftCopy ? null : row.Left,
+        DiffSideRow row when key == "right" => row.SkipRightCopy ? null : row.Right,
         BlameRow row when key == "blame" => row.Text,
-        BlameRow row when key == "meta" => row.Meta,
-        BlameRow row when key == "number" => row.Number,
+        BlameRow row when key == "meta" => row.Continues ? null : row.Meta,
+        BlameRow row when key == "number" => row.Continues ? null : row.Number,
         MergeRegionRow row when key == "context" && row.IsContext => row.Context,
         MergeRegionRow row when key == "ours" && row.IsConflict => row.OursDisplay,
         MergeRegionRow row when key == "theirs" && row.IsConflict => row.TheirsDisplay,
         MergeRegionRow row when key == "base" && row.ShowBaseSection => row.BaseDisplay,
         _ => null,
+    };
+
+    public static bool Continues(object? item, string key) => item switch
+    {
+        DiffLineRow row when key == "body" => row.Continues,
+        DiffSideRow row when key == "left" => row.LeftContinues,
+        DiffSideRow row when key == "right" => row.RightContinues,
+        BlameRow row when key == "blame" => row.Continues,
+        _ => false,
     };
 }
