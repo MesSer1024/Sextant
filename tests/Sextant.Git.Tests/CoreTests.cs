@@ -22,6 +22,16 @@ public class CoreTests
     }
 
     [Fact]
+    public void Redacts_userinfo_inside_command_output()
+    {
+        var redacted = ArgumentRedactor.RedactText("fatal: unable to access 'https://user:token@github.com/a/b.git/': 403");
+        Assert.DoesNotContain("token", redacted, StringComparison.Ordinal);
+        Assert.DoesNotContain("user:", redacted, StringComparison.Ordinal);
+        Assert.Contains("github.com/a/b.git", redacted, StringComparison.Ordinal);
+        Assert.Contains("403", redacted, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Reads_use_no_optional_locks_and_writes_do_not()
     {
         Assert.Contains("--no-optional-locks", GitCommands.Status("repo"));

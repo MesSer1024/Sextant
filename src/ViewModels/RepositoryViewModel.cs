@@ -65,8 +65,6 @@ public partial class RepositoryViewModel : ViewModelBase
 
     public ObservableCollection<DiffRow> DiffRows { get; } = [];
 
-    public ObservableCollection<string> CommandLines { get; } = [];
-
     [ObservableProperty]
     public partial string Title { get; set; }
 
@@ -143,6 +141,9 @@ public partial class RepositoryViewModel : ViewModelBase
 
     [ObservableProperty]
     public partial bool CommandsOpen { get; set; }
+
+    [ObservableProperty]
+    public partial string CommandLog { get; private set; } = "";
 
     [ObservableProperty]
     public partial GraphRowViewModel? SelectedGraphRow { get; set; }
@@ -1783,12 +1784,35 @@ public partial class RepositoryViewModel : ViewModelBase
         if (signature == _commandSignature)
             return;
         _commandSignature = signature;
-        CommandLines.Clear();
-        foreach (var entry in state.Commands.TakeLast(40))
+        CommandLog = FormatCommandLog(state.Commands);
+    }
+
+    private static string FormatCommandLog(IReadOnlyList<CommandLogEntry> commands)
+    {
+        if (commands.Count == 0)
+            return "";
+        var builder = new StringBuilder();
+        foreach (var entry in commands.TakeLast(40))
         {
+            if (builder.Length > 0)
+                builder.Append('\n');
             var arguments = string.Join(" ", entry.Arguments);
-            CommandLines.Add($"{entry.At.LocalDateTime:HH:mm:ss}  {entry.Duration.TotalMilliseconds.ToString("0", CultureInfo.InvariantCulture)}ms  {entry.ExitCode}  {arguments}");
+            builder.Append(entry.At.LocalDateTime.ToString("HH:mm:ss", CultureInfo.CurrentCulture));
+            builder.Append("  ");
+            builder.Append(entry.Duration.TotalMilliseconds.ToString("0", CultureInfo.InvariantCulture));
+            builder.Append("ms  ");
+            builder.Append(entry.ExitCode.ToString(CultureInfo.InvariantCulture));
+            builder.Append("  ");
+            builder.Append(arguments);
+            var error = ArgumentRedactor.RedactText(entry.StandardError.Replace("\r\n", "\n").Replace('\r', '\n')).Trim();
+            if (error.Length > 0)
+            {
+                builder.Append('\n');
+                builder.Append(error);
+            }
         }
+
+        return builder.ToString();
     }
 
     private static string CommitDetail(CommitRecord commit, string refs, bool head)

@@ -9,7 +9,8 @@
         Icon="/Assets/sextant.png"
         Title="{Binding TitleText}"
         Width="1200" Height="760"
-        MinWidth="880" MinHeight="520">
+        MinWidth="880" MinHeight="520"
+        Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
 
     <Grid RowDefinitions="Auto,Auto,*,Auto">
         <Menu Grid.Row="0">

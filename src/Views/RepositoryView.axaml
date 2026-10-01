@@ -361,17 +361,29 @@
             </Grid>
         </Grid>
 
-        <Border Grid.Row="4" IsVisible="{Binding CommandsOpen}" MaxHeight="180" Padding="8,4" Margin="4,0,4,4">
-            <DockPanel>
-                <TextBlock DockPanel.Dock="Top" Text="Commands" FontWeight="SemiBold" Margin="0,0,0,4"/>
-                <ItemsControl ItemsSource="{Binding CommandLines}">
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate>
-                            <TextBlock Text="{Binding}" FontSize="11" TextWrapping="Wrap"/>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
-            </DockPanel>
+        <Border Grid.Row="4" IsVisible="{Binding CommandsOpen}" HorizontalAlignment="Stretch"
+                Height="168" Padding="8,4,8,8" Margin="0" ClipToBounds="True"
+                BorderThickness="0,1,0,0"
+                BorderBrush="{DynamicResource SystemControlForegroundBaseMediumLowBrush}"
+                Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
+            <Grid RowDefinitions="Auto,*">
+                <TextBlock Text="Commands" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                <TextBox x:Name="CommandLogBox" Grid.Row="1" Classes="diff"
+                         IsReadOnly="True" AcceptsReturn="True" IsUndoEnabled="False"
+                         TextWrapping="NoWrap" VerticalContentAlignment="Top"
+                         HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                         ClearSelectionOnLostFocus="False"
+                         ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                         ScrollViewer.VerticalScrollBarVisibility="Auto"
+                         PlaceholderText="No commands yet.">
+                    <TextBox.ContextFlyout>
+                        <MenuFlyout Opening="OnCommandLogMenuOpening">
+                            <MenuItem Header="Copy" Command="{Binding $parent[TextBox].Copy}" IsEnabled="{Binding $parent[TextBox].CanCopy}" InputGesture="{x:Static TextBox.CopyGesture}"/>
+                            <MenuItem x:Name="CommandLogSelectAllItem" Header="Select all" Command="{Binding $parent[TextBox].SelectAll}"/>
+                        </MenuFlyout>
+                    </TextBox.ContextFlyout>
+                </TextBox>
+            </Grid>
         </Border>
     </Grid>
 </UserControl>
