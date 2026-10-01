@@ -591,11 +591,20 @@ public partial class MainViewModel : ViewModelBase, IWorkspaceHost
             _palette.Add(new PaletteItem { Title = "Pull", Run = tab.Pull });
             _palette.Add(new PaletteItem { Title = "Push", Run = tab.Push });
             _palette.Add(new PaletteItem { Title = "Commit", Run = tab.Commit });
+            _palette.Add(new PaletteItem { Title = "Commit without hooks", Run = () => tab.CommitWithoutHooksCommand.ExecuteAsync(null) });
+            _palette.Add(new PaletteItem { Title = "Stage all", Run = () => tab.StageAllCommand.ExecuteAsync(null) });
+            _palette.Add(new PaletteItem { Title = "Unstage all", Run = () => tab.UnstageAllCommand.ExecuteAsync(null) });
             _palette.Add(new PaletteItem { Title = "Checkout branch", Run = tab.CheckoutFromPalette });
             _palette.Add(new PaletteItem { Title = "Create branch", Run = tab.CreateBranch });
             _palette.Add(new PaletteItem { Title = "Merge branch", Run = tab.MergeFromPalette });
+            _palette.Add(new PaletteItem { Title = "Stash", Run = () => tab.StashCommand.ExecuteAsync(null) });
+            _palette.Add(new PaletteItem { Title = "Add remote", Run = () => tab.AddRemoteCommand.ExecuteAsync(null) });
+            _palette.Add(new PaletteItem { Title = "Toggle side-by-side diff", Run = () => tab.ToggleSideBySideCommand.ExecuteAsync(null) });
+            _palette.Add(new PaletteItem { Title = "Toggle ignore whitespace", Run = () => tab.ToggleWhitespaceCommand.ExecuteAsync(null) });
+            _palette.Add(new PaletteItem { Title = "Toggle all files", Run = () => tab.ToggleAllFilesCommand.ExecuteAsync(null) });
+            _palette.Add(new PaletteItem { Title = "Toggle blame", Run = () => tab.ToggleBlameCommand.ExecuteAsync(null) });
             if (tab.IsConflicted)
-                _palette.Add(new PaletteItem { Title = "Abort merge", Run = tab.AbortMerge });
+                _palette.Add(new PaletteItem { Title = "Abort", Run = tab.AbortMerge });
             _palette.Add(new PaletteItem { Title = "Toggle command log", Run = () => { tab.CommandsOpen = !tab.CommandsOpen; return Task.CompletedTask; } });
         }
 

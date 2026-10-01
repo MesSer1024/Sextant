@@ -10,7 +10,7 @@ public static partial class DiffParser
         var normalized = text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
         if (normalized.Contains("GIT binary patch", StringComparison.Ordinal)
             || normalized.Contains("Binary files ", StringComparison.Ordinal))
-            return DiffDocument.Binary;
+            return new DiffDocument(true, false, false, false, false, [], normalized);
 
         var isNew = ContainsLine(normalized, "new file mode ");
         var isDeleted = ContainsLine(normalized, "deleted file mode ");
@@ -47,6 +47,61 @@ public static partial class DiffParser
         if (current is not null)
             hunks.Add(current.Build());
         return new DiffDocument(false, isNew, isDeleted, isRename, false, hunks, normalized);
+    }
+
+    public readonly record struct DiffFile(string Path, DiffDocument Document);
+
+    public static IReadOnlyList<DiffFile> ParseFiles(string text)
+    {
+        var normalized = text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
+        if (normalized.Length == 0)
+            return [];
+        const string marker = "diff --git ";
+        var indexes = new List<int>();
+        var start = 0;
+        while (start < normalized.Length)
+        {
+            int at;
+            if (start == 0 && normalized.StartsWith(marker, StringComparison.Ordinal))
+                at = 0;
+            else
+            {
+                var found = normalized.IndexOf("\n" + marker, start, StringComparison.Ordinal);
+                if (found < 0)
+                    break;
+                at = found + 1;
+            }
+
+            indexes.Add(at);
+            start = at + marker.Length;
+        }
+
+        if (indexes.Count == 0)
+            return [new DiffFile("", Parse(normalized))];
+
+        var files = new List<DiffFile>(indexes.Count);
+        for (var i = 0; i < indexes.Count; i++)
+        {
+            var end = i + 1 < indexes.Count ? indexes[i + 1] : normalized.Length;
+            var slice = normalized[indexes[i]..end];
+            files.Add(new DiffFile(PathFromHeader(slice), Parse(slice)));
+        }
+
+        return files;
+    }
+
+    private static string PathFromHeader(string slice)
+    {
+        var lineEnd = slice.IndexOf('\n');
+        var line = lineEnd < 0 ? slice : slice[..lineEnd];
+        const string marker = " b/";
+        var at = line.LastIndexOf(marker, StringComparison.Ordinal);
+        if (at < 0)
+            return line;
+        var path = line[(at + marker.Length)..];
+        if (path.Length >= 2 && path[0] == '"' && path[^1] == '"')
+            path = path[1..^1];
+        return path;
     }
 
     private static bool ContainsLine(string text, string prefix) =>

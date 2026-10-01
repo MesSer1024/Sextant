@@ -27,6 +27,11 @@ public class CoreTests
         Assert.Contains("--no-optional-locks", GitCommands.Status("repo"));
         Assert.Contains("--no-optional-locks", GitCommands.Log("repo", 0, 10));
         Assert.DoesNotContain("--no-optional-locks", GitCommands.Commit("repo", "msg"));
+        Assert.DoesNotContain("--no-verify", GitCommands.Commit("repo", "msg"));
+        Assert.Contains("--no-verify", GitCommands.Commit("repo", "msg", noVerify: true));
+        Assert.Contains("-A", GitCommands.StageAll("repo"));
+        Assert.Equal(":", GitCommands.UnstageAll("repo")[^1]);
+        Assert.Equal(["rm", "-r", "--cached", "-f", "--", "."], GitCommands.UnstageAllUnborn("repo").Skip(2));
         Assert.DoesNotContain("--no-optional-locks", GitCommands.Fetch("repo"));
         Assert.Contains("--no-edit", GitCommands.Merge("repo", "topic"));
         Assert.Contains("--no-edit", GitCommands.Pull("repo"));

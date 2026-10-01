@@ -11,7 +11,7 @@ public interface IDialogService
 
     Task<bool> ConfirmAsync(string title, string message, string confirm = "OK");
 
-    Task<string?> PromptAsync(string title, string message, string initial = "");
+    Task<string?> PromptAsync(string title, string message, string initial = "", bool allowEmpty = false);
 
     Task<CloneRequest?> PromptCloneAsync();
 

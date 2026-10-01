@@ -11,28 +11,30 @@
         Width="1200" Height="760"
         MinWidth="880" MinHeight="520">
 
-    <Grid RowDefinitions="Auto,*,Auto">
-        <Border Grid.Row="0" IsVisible="{Binding HasGitProblem}" Padding="12,8" Background="#33C42B1C">
+    <Grid RowDefinitions="Auto,Auto,*,Auto">
+        <Menu Grid.Row="0">
+            <MenuItem Header="_File">
+                <MenuItem Header="_Open repository…" Command="{Binding OpenFolderCommand}" IsEnabled="{Binding CanUseGit}" InputGesture="Ctrl+O"/>
+                <MenuItem Header="_Clone repository…" Command="{Binding CloneCommand}" IsEnabled="{Binding CanUseGit}"/>
+                <MenuItem Header="_Init repository…" Command="{Binding InitCommand}" IsEnabled="{Binding CanUseGit}"/>
+            </MenuItem>
+        </Menu>
+
+        <Border Grid.Row="1" IsVisible="{Binding HasGitProblem}" Padding="12,8" Background="#33C42B1C">
             <DockPanel>
                 <Button DockPanel.Dock="Right" Content="Locate git" Command="{Binding LocateGitCommand}" Margin="12,0,0,0"/>
                 <TextBlock Text="{Binding GitProblem}" TextWrapping="Wrap" VerticalAlignment="Center"/>
             </DockPanel>
         </Border>
 
-        <Grid x:Name="Root" Grid.Row="1">
+        <Grid x:Name="Root" Grid.Row="2">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="220" MinWidth="160" MaxWidth="420"/>
                 <ColumnDefinition Width="4"/>
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
 
-            <DockPanel Grid.Column="0" Margin="8,8,4,8">
-                <WrapPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
-                    <Button Content="Open" Command="{Binding OpenFolderCommand}" IsEnabled="{Binding CanUseGit}" Margin="0,0,6,6"/>
-                    <Button Content="Clone" Command="{Binding CloneCommand}" IsEnabled="{Binding CanUseGit}" Margin="0,0,6,6"/>
-                    <Button Content="Init" Command="{Binding InitCommand}" IsEnabled="{Binding CanUseGit}" Margin="0,0,6,6"/>
-                </WrapPanel>
-                <ListBox ItemsSource="{Binding Pins}" SelectedItem="{Binding SelectedPin}">
+            <ListBox Grid.Column="0" Margin="8,8,4,8" ItemsSource="{Binding Pins}" SelectedItem="{Binding SelectedPin}">
                     <ListBox.ItemTemplate>
                         <DataTemplate x:DataType="vm:PinViewModel">
                             <Border ToolTip.Tip="{Binding Path}">
@@ -49,8 +51,7 @@
                             </Border>
                         </DataTemplate>
                     </ListBox.ItemTemplate>
-                </ListBox>
-            </DockPanel>
+            </ListBox>
 
             <GridSplitter Grid.Column="1" ResizeDirection="Columns"/>
 
@@ -94,11 +95,11 @@
             </Grid>
         </Grid>
 
-        <Border Grid.Row="2" Padding="12,4" IsVisible="{Binding HasStatusText}">
+        <Border Grid.Row="3" Padding="12,4" IsVisible="{Binding HasStatusText}">
             <TextBlock Text="{Binding StatusText}" TextWrapping="Wrap" Opacity="0.8"/>
         </Border>
 
-        <Panel Grid.Row="1" IsVisible="{Binding PaletteOpen}" Background="#66000000" PointerPressed="OnPaletteBackdrop">
+        <Panel Grid.Row="2" IsVisible="{Binding PaletteOpen}" Background="#66000000" PointerPressed="OnPaletteBackdrop">
             <Border Width="520" MaxHeight="420" Margin="0,72,0,0"
                     HorizontalAlignment="Center" VerticalAlignment="Top"
                     Padding="8" CornerRadius="6"

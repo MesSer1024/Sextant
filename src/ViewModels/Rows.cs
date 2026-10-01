@@ -49,11 +49,25 @@ public partial class GraphRowViewModel : ObservableObject
 
     public bool ShowCheckout { get; init; }
 
+    public bool ShowRewrite { get; init; }
+
     public ICommand CheckoutCommand { get; init; } = UiCommands.Disabled;
 
     public ICommand CreateBranchCommand { get; init; } = UiCommands.Disabled;
 
     public ICommand CopyShaCommand { get; init; } = UiCommands.Disabled;
+
+    public ICommand ResetSoftCommand { get; init; } = UiCommands.Disabled;
+
+    public ICommand ResetMixedCommand { get; init; } = UiCommands.Disabled;
+
+    public ICommand ResetHardCommand { get; init; } = UiCommands.Disabled;
+
+    public ICommand CherryPickCommand { get; init; } = UiCommands.Disabled;
+
+    public ICommand RevertCommand { get; init; } = UiCommands.Disabled;
+
+    public ICommand TagCommand { get; init; } = UiCommands.Disabled;
 }
 
 public partial class LocationItem : ObservableObject
@@ -80,6 +94,14 @@ public partial class LocationItem : ObservableObject
 
     public bool ShowReveal { get; init; }
 
+    public bool ShowRename { get; init; }
+
+    public bool ShowPop { get; init; }
+
+    public bool ShowApply { get; init; }
+
+    public bool ShowDrop { get; init; }
+
     public ICommand CheckoutCommand { get; init; } = UiCommands.Disabled;
 
     public ICommand MergeCommand { get; init; } = UiCommands.Disabled;
@@ -89,6 +111,14 @@ public partial class LocationItem : ObservableObject
     public ICommand SetUpstreamCommand { get; init; } = UiCommands.Disabled;
 
     public ICommand RevealCommand { get; init; } = UiCommands.Disabled;
+
+    public ICommand RenameCommand { get; init; } = UiCommands.Disabled;
+
+    public ICommand PopCommand { get; init; } = UiCommands.Disabled;
+
+    public ICommand ApplyCommand { get; init; } = UiCommands.Disabled;
+
+    public ICommand DropCommand { get; init; } = UiCommands.Disabled;
 }
 
 public partial class FileRowViewModel : ObservableObject
@@ -117,6 +147,8 @@ public partial class FileRowViewModel : ObservableObject
 
     public bool ShowMergetool { get; init; }
 
+    public bool ShowHistory { get; init; }
+
     public ICommand StageCommand { get; init; } = UiCommands.Disabled;
 
     public ICommand UnstageCommand { get; init; } = UiCommands.Disabled;
@@ -124,6 +156,8 @@ public partial class FileRowViewModel : ObservableObject
     public ICommand DiscardCommand { get; init; } = UiCommands.Disabled;
 
     public ICommand MergetoolCommand { get; init; } = UiCommands.Disabled;
+
+    public ICommand HistoryCommand { get; init; } = UiCommands.Disabled;
 }
 
 public abstract class DiffRow;
@@ -144,6 +178,37 @@ public sealed class DiffLineRow : DiffRow
     public required string Text { get; init; }
 
     public required IBrush Background { get; init; }
+
+    public bool ShowAction { get; init; }
+
+    public string ActionLabel { get; init; } = "";
+
+    public ICommand ActionCommand { get; init; } = UiCommands.Disabled;
+}
+
+public sealed class DiffSideRow : DiffRow
+{
+    public required string Left { get; init; }
+
+    public required string Right { get; init; }
+
+    public required IBrush LeftBackground { get; init; }
+
+    public required IBrush RightBackground { get; init; }
+}
+
+public sealed class DiffFileRow : DiffRow
+{
+    public required string Label { get; init; }
+}
+
+public sealed class BlameRow
+{
+    public required string Number { get; init; }
+
+    public required string Meta { get; init; }
+
+    public required string Text { get; init; }
 }
 
 public sealed class PaletteItem

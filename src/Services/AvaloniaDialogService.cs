@@ -57,15 +57,17 @@ public sealed class AvaloniaDialogService : IDialogService
         return accepted;
     }
 
-    public async Task<string?> PromptAsync(string title, string message, string initial = "")
+    public async Task<string?> PromptAsync(string title, string message, string initial = "", bool allowEmpty = false)
     {
         var window = Create(title);
         var box = new TextBox { Text = initial, PlaceholderText = message };
         string? value = null;
+        var accepted = false;
         var ok = new Button { Content = "OK", IsDefault = true };
         var cancel = new Button { Content = "Cancel", IsCancel = true };
         ok.Click += (_, _) =>
         {
+            accepted = true;
             if (!string.IsNullOrWhiteSpace(box.Text))
                 value = box.Text.Trim();
             window.Close();
@@ -73,6 +75,8 @@ public sealed class AvaloniaDialogService : IDialogService
         cancel.Click += (_, _) => window.Close();
         window.Content = Column(Message(message), box, Buttons(cancel, ok));
         await window.ShowDialog(_owner);
+        if (allowEmpty && accepted)
+            return value ?? "";
         return value;
     }
 

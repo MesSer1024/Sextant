@@ -19,10 +19,10 @@
         </Border>
 
         <Border Grid.Row="1" IsVisible="{Binding IsConflicted}" Padding="10,6" Background="#33E0A100">
-            <TextBlock Text="Merge in progress. Resolve the files, stage them, and commit, or abort the merge." TextWrapping="Wrap"/>
+            <TextBlock Text="{Binding ConflictText}" TextWrapping="Wrap"/>
         </Border>
 
-        <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto,Auto,Auto,Auto,Auto,Auto" Margin="8,6">
+        <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" Margin="8,6">
             <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
                 <TextBlock Text="{Binding BranchText}" FontWeight="SemiBold" VerticalAlignment="Center"/>
                 <TextBlock Text="{Binding AheadBehindText}" IsVisible="{Binding ShowAheadBehind}" VerticalAlignment="Center" Opacity="0.75"/>
@@ -32,9 +32,11 @@
             <Button Grid.Column="2" Content="Pull" Command="{Binding PullCommand}" Margin="6,0,0,0" IsEnabled="{Binding CanRunCommands}"/>
             <Button Grid.Column="3" Content="Push" Command="{Binding PushCommand}" Margin="6,0,0,0" IsEnabled="{Binding CanRunCommands}"/>
             <Button Grid.Column="4" Content="Branch" Command="{Binding CreateBranchCommand}" Margin="6,0,0,0" IsEnabled="{Binding CanRunCommands}"/>
-            <Button Grid.Column="5" Content="Abort merge" Command="{Binding AbortMergeCommand}" Margin="6,0,0,0" IsVisible="{Binding IsConflicted}"/>
-            <Button Grid.Column="6" Content="Cancel" Command="{Binding CancelCommand}" Margin="6,0,0,0" IsVisible="{Binding CanCancel}"/>
-            <Button Grid.Column="7" Content="Log" Command="{Binding ToggleCommandsCommand}" Margin="6,0,0,0"/>
+            <Button Grid.Column="5" Content="Stash" Command="{Binding StashCommand}" Margin="6,0,0,0" IsEnabled="{Binding CanRunCommands}"/>
+            <Button Grid.Column="6" Content="Remote" Command="{Binding AddRemoteCommand}" Margin="6,0,0,0" IsEnabled="{Binding CanRunCommands}"/>
+            <Button Grid.Column="7" Content="Abort" Command="{Binding AbortMergeCommand}" Margin="6,0,0,0" IsVisible="{Binding IsConflicted}"/>
+            <Button Grid.Column="8" Content="Cancel" Command="{Binding CancelCommand}" Margin="6,0,0,0" IsVisible="{Binding CanCancel}"/>
+            <Button Grid.Column="9" Content="Log" Command="{Binding ToggleCommandsCommand}" Margin="6,0,0,0"/>
         </Grid>
 
         <Grid x:Name="Columns" Grid.Row="3" Margin="4,0,4,4">
@@ -53,6 +55,10 @@
                     <Button Content="Delete" Command="{Binding DeleteSelectedCommand}" IsVisible="{Binding CanDeleteLocation}" Margin="0,0,4,4"/>
                     <Button Content="Upstream" Command="{Binding UpstreamSelectedCommand}" IsVisible="{Binding CanUpstreamLocation}" Margin="0,0,4,4"/>
                     <Button Content="Show" Command="{Binding RevealSelectedCommand}" IsVisible="{Binding CanRevealLocation}" Margin="0,0,4,4"/>
+                    <Button Content="Rename" Command="{Binding RenameSelectedCommand}" IsVisible="{Binding CanRenameLocation}" Margin="0,0,4,4"/>
+                    <Button Content="Pop" Command="{Binding PopSelectedCommand}" IsVisible="{Binding CanPopLocation}" Margin="0,0,4,4"/>
+                    <Button Content="Apply" Command="{Binding ApplySelectedCommand}" IsVisible="{Binding CanApplyLocation}" Margin="0,0,4,4"/>
+                    <Button Content="Drop" Command="{Binding DropSelectedCommand}" IsVisible="{Binding CanDropLocation}" Margin="0,0,4,4"/>
                 </WrapPanel>
                 <ListBox ItemsSource="{Binding Locations}" SelectedItem="{Binding SelectedLocation}" DoubleTapped="OnLocationDoubleTapped">
                     <ListBox.ItemTemplate>
@@ -65,6 +71,10 @@
                                         <MenuItem Header="Delete" Command="{Binding DeleteCommand}" IsVisible="{Binding ShowDelete}"/>
                                         <MenuItem Header="Set upstream" Command="{Binding SetUpstreamCommand}" IsVisible="{Binding ShowSetUpstream}"/>
                                         <MenuItem Header="Show in graph" Command="{Binding RevealCommand}" IsVisible="{Binding ShowReveal}"/>
+                                        <MenuItem Header="Rename" Command="{Binding RenameCommand}" IsVisible="{Binding ShowRename}"/>
+                                        <MenuItem Header="Pop" Command="{Binding PopCommand}" IsVisible="{Binding ShowPop}"/>
+                                        <MenuItem Header="Apply" Command="{Binding ApplyCommand}" IsVisible="{Binding ShowApply}"/>
+                                        <MenuItem Header="Drop" Command="{Binding DropCommand}" IsVisible="{Binding ShowDrop}"/>
                                     </ContextMenu>
                                 </Border.ContextMenu>
                                 <TextBlock Text="{Binding Label}" FontWeight="{Binding Weight}" TextTrimming="CharacterEllipsis"/>
@@ -77,9 +87,18 @@
             <GridSplitter Grid.Column="1" ResizeDirection="Columns"/>
 
             <DockPanel Grid.Column="2">
+                <StackPanel DockPanel.Dock="Top" Margin="0,0,0,4" Spacing="4">
+                    <Grid ColumnDefinitions="*,Auto,Auto">
+                        <TextBox PlaceholderText="Search subject, author, sha, or branch:name" Text="{Binding HistoryText}" KeyDown="OnHistoryKeyDown"/>
+                        <Button Grid.Column="1" Classes="flat" Content="Search" Command="{Binding SearchHistoryCommand}" Margin="4,0,0,0"/>
+                        <Button Grid.Column="2" Classes="flat" Content="Clear" Command="{Binding ClearHistoryCommand}" Margin="4,0,0,0"/>
+                    </Grid>
+                    <TextBlock Text="{Binding HistoryCaption}" IsVisible="{Binding HasHistoryFilter}" Opacity="0.75" TextWrapping="Wrap"/>
+                </StackPanel>
                 <Button Classes="flat" DockPanel.Dock="Bottom" Content="{Binding LoadMoreText}" Command="{Binding LoadMoreCommand}"
                         IsVisible="{Binding ShowLoadMore}" HorizontalAlignment="Stretch" Margin="0,4,0,0"/>
-                <ListBox x:Name="GraphList" Classes="graph" ItemsSource="{Binding Rows}" SelectedItem="{Binding SelectedGraphRow}">
+                <ListBox x:Name="GraphList" Classes="graph" ItemsSource="{Binding Rows}" SelectedItem="{Binding SelectedGraphRow}"
+                         SelectionMode="Multiple" SelectionChanged="OnGraphSelectionChanged">
                     <ListBox.Styles>
                         <Style Selector="ListBoxItem">
                             <Setter Property="Padding" Value="4,0"/>
@@ -101,6 +120,12 @@
                                         <MenuItem Header="Checkout" Command="{Binding CheckoutCommand}" IsVisible="{Binding ShowCheckout}"/>
                                         <MenuItem Header="Create branch at HEAD" Command="{Binding CreateBranchCommand}"/>
                                         <MenuItem Header="Copy SHA" Command="{Binding CopyShaCommand}" IsVisible="{Binding ShowLanes}"/>
+                                        <MenuItem Header="Reset soft" Command="{Binding ResetSoftCommand}" IsVisible="{Binding ShowRewrite}"/>
+                                        <MenuItem Header="Reset mixed" Command="{Binding ResetMixedCommand}" IsVisible="{Binding ShowRewrite}"/>
+                                        <MenuItem Header="Reset hard" Command="{Binding ResetHardCommand}" IsVisible="{Binding ShowRewrite}"/>
+                                        <MenuItem Header="Cherry-pick" Command="{Binding CherryPickCommand}" IsVisible="{Binding ShowRewrite}"/>
+                                        <MenuItem Header="Revert" Command="{Binding RevertCommand}" IsVisible="{Binding ShowRewrite}"/>
+                                        <MenuItem Header="Tag" Command="{Binding TagCommand}" IsVisible="{Binding ShowRewrite}"/>
                                     </ContextMenu>
                                 </Grid.ContextMenu>
                                 <controls:LaneCanvas Grid.Column="0" Geometry="{Binding Lanes}" IsVisible="{Binding ShowLanes}" Margin="0,0,6,0"/>
@@ -118,6 +143,7 @@
             <Grid x:Name="Details" Grid.Column="4">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
                     <RowDefinition Height="180" MinHeight="80"/>
                     <RowDefinition Height="4"/>
                     <RowDefinition Height="*"/>
@@ -128,7 +154,13 @@
                         <DockPanel>
                             <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,6,0,0">
                                 <TextBlock Text="Nothing staged." IsVisible="{Binding NothingStaged}" VerticalAlignment="Center" Opacity="0.7"/>
-                                <Button Content="Commit" Command="{Binding CommitCommand}" IsEnabled="{Binding CanCommit}"/>
+                                <SplitButton Content="Commit" Command="{Binding CommitCommand}" IsEnabled="{Binding CanCommit}">
+                                    <SplitButton.Flyout>
+                                        <MenuFlyout>
+                                            <MenuItem Header="Commit without hooks" Command="{Binding CommitWithoutHooksCommand}" IsEnabled="{Binding CanCommit}"/>
+                                        </MenuFlyout>
+                                    </SplitButton.Flyout>
+                                </SplitButton>
                             </StackPanel>
                             <TextBox Text="{Binding CommitMessage}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="64"
                                      PlaceholderText="Commit message" KeyDown="OnCommitKeyDown"/>
@@ -140,7 +172,12 @@
                     </StackPanel>
                 </StackPanel>
 
-                <ListBox x:Name="FileList" Grid.Row="1" ItemsSource="{Binding Files}" SelectedItem="{Binding SelectedFile}">
+                <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8" Margin="8,0,8,4" IsVisible="{Binding ShowingWorkingCopy}">
+                    <Button Content="Stage all" Command="{Binding StageAllCommand}" IsEnabled="{Binding CanStageAll}"/>
+                    <Button Content="Unstage all" Command="{Binding UnstageAllCommand}" IsEnabled="{Binding CanUnstageAll}"/>
+                </StackPanel>
+
+                <ListBox x:Name="FileList" Grid.Row="2" ItemsSource="{Binding Files}" SelectedItem="{Binding SelectedFile}">
                     <ListBox.ItemTemplate>
                         <DataTemplate x:DataType="vm:FileRowViewModel">
                             <Grid ColumnDefinitions="22,*,Auto">
@@ -150,6 +187,7 @@
                                         <MenuItem Header="Unstage" Command="{Binding UnstageCommand}" IsVisible="{Binding ShowUnstage}"/>
                                         <MenuItem Header="Discard" Command="{Binding DiscardCommand}" IsVisible="{Binding ShowDiscard}"/>
                                         <MenuItem Header="Open in merge tool" Command="{Binding MergetoolCommand}" IsVisible="{Binding ShowMergetool}"/>
+                                        <MenuItem Header="File history" Command="{Binding HistoryCommand}" IsVisible="{Binding ShowHistory}"/>
                                     </ContextMenu>
                                 </Grid.ContextMenu>
                                 <TextBlock Text="{Binding StatusText}" FontWeight="SemiBold" VerticalAlignment="Center" IsVisible="{Binding IsFile}"/>
@@ -160,37 +198,74 @@
                                     <Button Classes="flat" Content="Unstage" Command="{Binding UnstageCommand}" IsVisible="{Binding ShowUnstage}" Padding="6,0"/>
                                     <Button Classes="flat" Content="Discard" Command="{Binding DiscardCommand}" IsVisible="{Binding ShowDiscard}" Padding="6,0"/>
                                     <Button Classes="flat" Content="Merge tool" Command="{Binding MergetoolCommand}" IsVisible="{Binding ShowMergetool}" Padding="6,0"/>
+                                    <Button Classes="flat" Content="History" Command="{Binding HistoryCommand}" IsVisible="{Binding ShowHistory}" Padding="6,0"/>
                                 </StackPanel>
                             </Grid>
                         </DataTemplate>
                     </ListBox.ItemTemplate>
                 </ListBox>
 
-                <GridSplitter Grid.Row="2" ResizeDirection="Rows"/>
+                <GridSplitter Grid.Row="3" ResizeDirection="Rows"/>
 
-                <DockPanel Grid.Row="3">
+                <DockPanel Grid.Row="4">
+                    <WrapPanel DockPanel.Dock="Top" Margin="8,4,8,0">
+                        <Button Classes="flat" Content="{Binding SideBySideLabel}" Command="{Binding ToggleSideBySideCommand}" Margin="0,0,4,4"/>
+                        <Button Classes="flat" Content="{Binding WhitespaceLabel}" Command="{Binding ToggleWhitespaceCommand}" Margin="0,0,4,4"/>
+                        <Button Classes="flat" Content="{Binding FilesModeLabel}" Command="{Binding ToggleAllFilesCommand}" Margin="0,0,4,4"/>
+                        <Button Classes="flat" Content="{Binding BlameLabel}" Command="{Binding ToggleBlameCommand}" Margin="0,0,4,4"/>
+                    </WrapPanel>
                     <StackPanel DockPanel.Dock="Top" Margin="8,4">
                         <TextBlock Text="{Binding DiffNotice}" IsVisible="{Binding HasDiffNotice}" TextWrapping="Wrap" Opacity="0.75"/>
                         <Button Classes="flat" Content="Load anyway" Command="{Binding LoadLargeDiffCommand}" IsVisible="{Binding ShowLoadDiff}" HorizontalAlignment="Left" Margin="0,4,0,0"/>
                     </StackPanel>
-                    <ListBox ItemsSource="{Binding DiffRows}" Background="Transparent">
-                        <ListBox.ItemsPanel>
-                            <ItemsPanelTemplate>
-                                <VirtualizingStackPanel/>
-                            </ItemsPanelTemplate>
-                        </ListBox.ItemsPanel>
-                        <ListBox.DataTemplates>
-                            <DataTemplate DataType="vm:DiffHunkRow" x:DataType="vm:DiffHunkRow">
-                                <DockPanel Margin="8,6,8,2">
-                                    <Button Classes="flat" DockPanel.Dock="Right" Content="{Binding ActionLabel}" Command="{Binding ActionCommand}" IsVisible="{Binding ShowAction}" Padding="6,0"/>
-                                    <TextBlock Classes="diff" Text="{Binding Header}" Opacity="0.7"/>
-                                </DockPanel>
-                            </DataTemplate>
-                            <DataTemplate DataType="vm:DiffLineRow" x:DataType="vm:DiffLineRow">
-                                <TextBlock Classes="diff" Text="{Binding Text}" Background="{Binding Background}" Padding="8,0"/>
-                            </DataTemplate>
-                        </ListBox.DataTemplates>
-                    </ListBox>
+                    <Grid>
+                        <ListBox ItemsSource="{Binding DiffRows}" Background="Transparent" IsVisible="{Binding ShowingDiff}">
+                            <ListBox.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <VirtualizingStackPanel/>
+                                </ItemsPanelTemplate>
+                            </ListBox.ItemsPanel>
+                            <ListBox.DataTemplates>
+                                <DataTemplate DataType="vm:DiffHunkRow" x:DataType="vm:DiffHunkRow">
+                                    <DockPanel Margin="8,6,8,2">
+                                        <Button Classes="flat" DockPanel.Dock="Right" Content="{Binding ActionLabel}" Command="{Binding ActionCommand}" IsVisible="{Binding ShowAction}" Padding="6,0"/>
+                                        <TextBlock Classes="diff" Text="{Binding Header}" Opacity="0.7"/>
+                                    </DockPanel>
+                                </DataTemplate>
+                                <DataTemplate DataType="vm:DiffLineRow" x:DataType="vm:DiffLineRow">
+                                    <DockPanel>
+                                        <Button Classes="flat" DockPanel.Dock="Right" Content="{Binding ActionLabel}" Command="{Binding ActionCommand}" IsVisible="{Binding ShowAction}" Padding="6,0"/>
+                                        <TextBlock Classes="diff" Text="{Binding Text}" Background="{Binding Background}" Padding="8,0"/>
+                                    </DockPanel>
+                                </DataTemplate>
+                                <DataTemplate DataType="vm:DiffSideRow" x:DataType="vm:DiffSideRow">
+                                    <Grid ColumnDefinitions="*,*">
+                                        <TextBlock Classes="diff" Text="{Binding Left}" Background="{Binding LeftBackground}" Padding="8,0"/>
+                                        <TextBlock Grid.Column="1" Classes="diff" Text="{Binding Right}" Background="{Binding RightBackground}" Padding="8,0"/>
+                                    </Grid>
+                                </DataTemplate>
+                                <DataTemplate DataType="vm:DiffFileRow" x:DataType="vm:DiffFileRow">
+                                    <TextBlock Text="{Binding Label}" FontWeight="SemiBold" Margin="8,8,8,2" TextTrimming="CharacterEllipsis"/>
+                                </DataTemplate>
+                            </ListBox.DataTemplates>
+                        </ListBox>
+                        <ListBox ItemsSource="{Binding BlameRows}" Background="Transparent" IsVisible="{Binding ShowingBlame}">
+                            <ListBox.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <VirtualizingStackPanel/>
+                                </ItemsPanelTemplate>
+                            </ListBox.ItemsPanel>
+                            <ListBox.ItemTemplate>
+                                <DataTemplate x:DataType="vm:BlameRow">
+                                    <Grid ColumnDefinitions="48,180,*">
+                                        <TextBlock Classes="diff" Text="{Binding Number}" Opacity="0.55"/>
+                                        <TextBlock Grid.Column="1" Classes="diff" Text="{Binding Meta}" Opacity="0.75" TextTrimming="CharacterEllipsis" Margin="0,0,8,0"/>
+                                        <TextBlock Grid.Column="2" Classes="diff" Text="{Binding Text}"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </Grid>
                 </DockPanel>
             </Grid>
         </Grid>

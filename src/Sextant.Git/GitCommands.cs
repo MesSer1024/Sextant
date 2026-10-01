@@ -31,7 +31,16 @@ public static class GitCommands
     public static IReadOnlyList<string> ConfigList(string toplevel) =>
         ["-C", toplevel, "--no-optional-locks", "config", "--null", "--list"];
 
-    public static IReadOnlyList<string> Log(string toplevel, int skip, int count, bool includeHead = true)
+    public static IReadOnlyList<string> Log(
+        string toplevel,
+        int skip,
+        int count,
+        bool includeHead = true,
+        bool includeStash = false,
+        string? revision = null,
+        string? grep = null,
+        string? author = null,
+        string? path = null)
     {
         // An unborn HEAD (fresh init, or an orphan branch) is not a revision. Passing it
         // makes log exit 128 with "ambiguous argument 'HEAD'" before --branches is considered.
@@ -39,42 +48,207 @@ public static class GitCommands
         {
             "-C", toplevel, "--no-optional-locks", "log", "-z", "--date-order",
         };
-        if (includeHead)
-            arguments.Add("HEAD");
-        arguments.Add("--branches");
-        arguments.Add("--tags");
-        arguments.Add("--remotes");
+        if (!string.IsNullOrEmpty(revision))
+        {
+            arguments.Add(revision);
+        }
+        else
+        {
+            if (includeHead)
+                arguments.Add("HEAD");
+            arguments.Add("--branches");
+            arguments.Add("--tags");
+            arguments.Add("--remotes");
+            if (includeStash)
+                arguments.Add("refs/stash");
+        }
+
         arguments.Add("--format=%H%x1f%P%x1f%at%x1f%an%x1f%ae%x1f%s");
+        if (!string.IsNullOrEmpty(grep))
+            arguments.Add("--grep=" + grep);
+        if (!string.IsNullOrEmpty(author))
+            arguments.Add("--author=" + author);
+        if (!string.IsNullOrEmpty(grep) || !string.IsNullOrEmpty(author))
+        {
+            arguments.Add("--fixed-strings");
+            arguments.Add("--regexp-ignore-case");
+        }
         arguments.Add("-n");
         arguments.Add(count.ToString(CultureInfo.InvariantCulture));
         arguments.Add("--skip");
         arguments.Add(skip.ToString(CultureInfo.InvariantCulture));
+        if (!string.IsNullOrEmpty(path))
+        {
+            arguments.Add("--");
+            arguments.Add(path);
+        }
+
         return arguments;
     }
+
+    public static IReadOnlyList<string> RevParseCommit(string toplevel, string revision) =>
+        ["-C", toplevel, "--no-optional-locks", "rev-parse", "--verify", "--quiet", revision + "^{commit}"];
+
+    public static IReadOnlyList<string> Blame(string toplevel, string? revision, string path)
+    {
+        var arguments = new List<string> { "-C", toplevel, "--no-optional-locks", "blame", "--line-porcelain" };
+        if (!string.IsNullOrEmpty(revision))
+            arguments.Add(revision);
+        arguments.Add("--");
+        arguments.Add(path);
+        return arguments;
+    }
+
+    public static IReadOnlyList<string> StashList(string toplevel) =>
+        ["-C", toplevel, "--no-optional-locks", "stash", "list", "--format=%gd%x1f%H%x1f%gs"];
+
+    public static IReadOnlyList<string> StashPush(string toplevel, string? message)
+    {
+        var arguments = new List<string> { "-C", toplevel, "stash", "push" };
+        if (!string.IsNullOrWhiteSpace(message))
+        {
+            arguments.Add("-m");
+            arguments.Add(message);
+        }
+
+        return arguments;
+    }
+
+    public static IReadOnlyList<string> StashPop(string toplevel, string stashRef) =>
+        ["-C", toplevel, "stash", "pop", stashRef];
+
+    public static IReadOnlyList<string> StashApply(string toplevel, string stashRef) =>
+        ["-C", toplevel, "stash", "apply", stashRef];
+
+    public static IReadOnlyList<string> StashDrop(string toplevel, string stashRef) =>
+        ["-C", toplevel, "stash", "drop", stashRef];
+
+    public static IReadOnlyList<string> Reset(string toplevel, string mode, string sha) =>
+        ["-C", toplevel, "reset", mode, sha];
+
+    public static IReadOnlyList<string> CherryPick(string toplevel, string sha) =>
+        ["-C", toplevel, "cherry-pick", "--no-edit", sha];
+
+    public static IReadOnlyList<string> Revert(string toplevel, string sha) =>
+        ["-C", toplevel, "revert", "--no-edit", sha];
+
+    public static IReadOnlyList<string> AbortCherryPick(string toplevel) =>
+        ["-C", toplevel, "cherry-pick", "--abort"];
+
+    public static IReadOnlyList<string> AbortRevert(string toplevel) =>
+        ["-C", toplevel, "revert", "--abort"];
+
+    public static IReadOnlyList<string> CreateTag(string toplevel, string name, string sha) =>
+        ["-C", toplevel, "tag", name, sha];
+
+    public static IReadOnlyList<string> DeleteTag(string toplevel, string name) =>
+        ["-C", toplevel, "tag", "-d", name];
+
+    public static IReadOnlyList<string> AddRemote(string toplevel, string name, string url) =>
+        ["-C", toplevel, "remote", "add", name, url];
+
+    public static IReadOnlyList<string> RemoveRemote(string toplevel, string name) =>
+        ["-C", toplevel, "remote", "remove", name];
+
+    public static IReadOnlyList<string> RenameRemote(string toplevel, string name, string newName) =>
+        ["-C", toplevel, "remote", "rename", name, newName];
 
     public static IReadOnlyList<string> NameStatus(string toplevel, string sha) =>
         ["-C", toplevel, "--no-optional-locks", "show", "-z", "--format=", "--name-status", sha];
 
-    public static IReadOnlyList<string> DiffUnstaged(string toplevel, string path) =>
-        ["-C", toplevel, "--no-optional-locks", "diff", "--", path];
+    public static IReadOnlyList<string> DiffUnstaged(string toplevel, string path, bool ignoreWhitespace = false) =>
+        DiffWorktree(toplevel, staged: false, ignoreWhitespace, path);
 
-    public static IReadOnlyList<string> DiffUntracked(string toplevel, string path) =>
-        ["-C", toplevel, "--no-optional-locks", "diff", "--no-index", "--", "/dev/null", path];
+    public static IReadOnlyList<string> DiffUntracked(string toplevel, string path, bool ignoreWhitespace = false)
+    {
+        var arguments = new List<string> { "-C", toplevel, "--no-optional-locks", "diff", "--no-index" };
+        if (ignoreWhitespace)
+            arguments.Add("-w");
+        arguments.Add("--");
+        arguments.Add("/dev/null");
+        arguments.Add(path);
+        return arguments;
+    }
 
-    public static IReadOnlyList<string> DiffStaged(string toplevel, string path) =>
-        ["-C", toplevel, "--no-optional-locks", "diff", "--cached", "--", path];
+    public static IReadOnlyList<string> DiffStaged(string toplevel, string path, bool ignoreWhitespace = false) =>
+        DiffWorktree(toplevel, staged: true, ignoreWhitespace, path);
 
-    public static IReadOnlyList<string> DiffRange(string toplevel, string older, string newer, string path) =>
-        ["-C", toplevel, "--no-optional-locks", "diff", older, newer, "--", path];
+    public static IReadOnlyList<string> DiffWorktree(string toplevel, bool staged, bool ignoreWhitespace, string? path = null)
+    {
+        var arguments = new List<string> { "-C", toplevel, "--no-optional-locks", "diff" };
+        if (staged)
+            arguments.Add("--cached");
+        if (ignoreWhitespace)
+            arguments.Add("-w");
+        if (!string.IsNullOrEmpty(path))
+        {
+            arguments.Add("--");
+            arguments.Add(path);
+        }
 
-    public static IReadOnlyList<string> ShowPatch(string toplevel, string sha, string path) =>
-        ["-C", toplevel, "--no-optional-locks", "show", "--format=", "-p", sha, "--", path];
+        return arguments;
+    }
+
+    public static IReadOnlyList<string> DiffRange(string toplevel, string older, string newer, string? path, bool ignoreWhitespace = false)
+    {
+        var arguments = new List<string> { "-C", toplevel, "--no-optional-locks", "diff" };
+        if (ignoreWhitespace)
+            arguments.Add("-w");
+        arguments.Add(older);
+        arguments.Add(newer);
+        if (!string.IsNullOrEmpty(path))
+        {
+            arguments.Add("--");
+            arguments.Add(path);
+        }
+
+        return arguments;
+    }
+
+    public static IReadOnlyList<string> RangeNameStatus(string toplevel, string older, string newer) =>
+        ["-C", toplevel, "--no-optional-locks", "diff", "-z", "--name-status", older, newer];
+
+    public static IReadOnlyList<string> ShowPatch(string toplevel, string sha, string? path, bool ignoreWhitespace = false)
+    {
+        var arguments = new List<string> { "-C", toplevel, "--no-optional-locks", "show" };
+        if (ignoreWhitespace)
+            arguments.Add("-w");
+        arguments.Add("--format=");
+        arguments.Add("-p");
+        arguments.Add(sha);
+        if (!string.IsNullOrEmpty(path))
+        {
+            arguments.Add("--");
+            arguments.Add(path);
+        }
+
+        return arguments;
+    }
 
     public static IReadOnlyList<string> Stage(string toplevel, string path) =>
         ["-C", toplevel, "add", "--", path];
 
+    public static IReadOnlyList<string> StageAll(string toplevel) =>
+        ["-C", toplevel, "add", "-A"];
+
+    public static IReadOnlyList<string> StagePaths(string toplevel, IReadOnlyList<string> paths)
+    {
+        var arguments = new List<string> { "-C", toplevel, "add", "--" };
+        arguments.AddRange(paths);
+        return arguments;
+    }
+
     public static IReadOnlyList<string> Unstage(string toplevel, string path) =>
         ["-C", toplevel, "restore", "--staged", "--", path];
+
+    public static IReadOnlyList<string> UnstageAll(string toplevel) =>
+        ["-C", toplevel, "restore", "--staged", ":"];
+
+    /// <summary>
+    /// Unstage every index entry before the first commit. restore --staged cannot resolve HEAD.
+    /// </summary>
+    public static IReadOnlyList<string> UnstageAllUnborn(string toplevel) =>
+        ["-C", toplevel, "rm", "-r", "--cached", "-f", "--", "."];
 
     /// <summary>
     /// Unstage before the first commit. restore --staged cannot resolve HEAD, so the
@@ -101,8 +275,15 @@ public static class GitCommands
     public static IReadOnlyList<string> ApplyCachedReverse(string toplevel, string patchFile) =>
         ["-C", toplevel, "apply", "--cached", "--reverse", patchFile];
 
-    public static IReadOnlyList<string> Commit(string toplevel, string messageFile) =>
-        ["-C", toplevel, "commit", "-F", messageFile];
+    public static IReadOnlyList<string> Commit(string toplevel, string messageFile, bool noVerify = false)
+    {
+        var arguments = new List<string> { "-C", toplevel, "commit" };
+        if (noVerify)
+            arguments.Add("--no-verify");
+        arguments.Add("-F");
+        arguments.Add(messageFile);
+        return arguments;
+    }
 
     public static IReadOnlyList<string> Switch(string toplevel, string branch) =>
         ["-C", toplevel, "switch", branch];

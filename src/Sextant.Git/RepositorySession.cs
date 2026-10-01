@@ -27,7 +27,11 @@ public sealed class RepositorySession : IAsyncDisposable
     private bool _historyCapped;
     private int _historyGeneration = 1;
     private bool _merge;
+    private SequencerKind _sequencer;
     private string? _mergeMessage;
+    private HistoryQuery? _historyQuery;
+    private bool _includeStash;
+    private List<StashEntry> _stashes = [];
     private TimeSpan _statusDuration;
     private PerformanceSuggestion? _suggestion;
     private string _tipSignature = "";
@@ -76,7 +80,10 @@ public sealed class RepositorySession : IAsyncDisposable
                 HistoryCapped = _historyCapped,
                 HistoryGeneration = _historyGeneration,
                 MergeInProgress = _merge,
+                Sequencer = _sequencer,
                 MergeMessage = _mergeMessage,
+                HistoryLabel = _historyQuery is { IsEmpty: false } query ? query.Describe() : null,
+                Stashes = _stashes.ToArray(),
                 LastStatusDuration = _statusDuration,
                 Config = new Dictionary<string, string>(_config, StringComparer.OrdinalIgnoreCase),
                 Remotes = _remotes.ToArray(),
@@ -128,7 +135,13 @@ public sealed class RepositorySession : IAsyncDisposable
         }, cancellationToken);
     }
 
-    public Task<DiffDocument?> WorkingDiffAsync(string path, bool staged, bool untracked, bool allowLarge, CancellationToken cancellationToken)
+    public Task<DiffDocument?> WorkingDiffAsync(
+        string path,
+        bool staged,
+        bool untracked,
+        bool allowLarge,
+        CancellationToken cancellationToken,
+        bool ignoreWhitespace = false)
     {
         var token = _diffGate.Next();
         return RunAsync(async ct =>
@@ -136,10 +149,10 @@ public sealed class RepositorySession : IAsyncDisposable
             var document = await _scheduler.ReadAsync(async inner =>
             {
                 if (untracked && !staged)
-                    return await DiffUntrackedAsync(path, allowLarge, inner).ConfigureAwait(false);
+                    return await DiffUntrackedAsync(path, allowLarge, ignoreWhitespace, inner).ConfigureAwait(false);
                 var arguments = staged
-                    ? GitCommands.DiffStaged(_toplevel, path)
-                    : GitCommands.DiffUnstaged(_toplevel, path);
+                    ? GitCommands.DiffStaged(_toplevel, path, ignoreWhitespace)
+                    : GitCommands.DiffUnstaged(_toplevel, path, ignoreWhitespace);
                 var output = await ExecuteAsync(arguments, null, inner).ConfigureAwait(false);
                 Checked(output);
                 return ToDiff(output, allowLarge);
@@ -148,31 +161,170 @@ public sealed class RepositorySession : IAsyncDisposable
         }, cancellationToken);
     }
 
+    public Task<DiffDocument?> WorktreeDiffAsync(bool staged, bool allowLarge, bool ignoreWhitespace, CancellationToken cancellationToken)
+    {
+        var token = _diffGate.Next();
+        return ReadDiffAsync(token, allowLarge, cancellationToken, inner =>
+            ExecuteAsync(GitCommands.DiffWorktree(_toplevel, staged, ignoreWhitespace), null, inner));
+    }
+
     public Task<DiffDocument?> CommitDiffAsync(
         string sha,
         string? firstParent,
-        string path,
+        string? path,
         bool allowLarge,
+        CancellationToken cancellationToken,
+        bool ignoreWhitespace = false)
+    {
+        var token = _diffGate.Next();
+        return ReadDiffAsync(token, allowLarge, cancellationToken, inner =>
+        {
+            var arguments = string.IsNullOrEmpty(firstParent)
+                ? GitCommands.ShowPatch(_toplevel, sha, path, ignoreWhitespace)
+                : GitCommands.DiffRange(_toplevel, firstParent, sha, path, ignoreWhitespace);
+            return ExecuteAsync(arguments, null, inner);
+        });
+    }
+
+    public Task<DiffDocument?> RangeDiffAsync(
+        string older,
+        string newer,
+        string? path,
+        bool allowLarge,
+        bool ignoreWhitespace,
         CancellationToken cancellationToken)
+    {
+        var token = _diffGate.Next();
+        return ReadDiffAsync(token, allowLarge, cancellationToken, inner =>
+            ExecuteAsync(GitCommands.DiffRange(_toplevel, older, newer, path, ignoreWhitespace), null, inner));
+    }
+
+    public Task<IReadOnlyList<CommitFileChange>?> RangeFilesAsync(string older, string newer, CancellationToken cancellationToken)
+    {
+        var token = _filesGate.Next();
+        return RunAsync(async ct =>
+        {
+            var changes = await _scheduler.ReadAsync(async inner =>
+            {
+                var output = await ExecuteAsync(GitCommands.RangeNameStatus(_toplevel, older, newer), null, inner).ConfigureAwait(false);
+                Checked(output);
+                return NameStatusParser.Parse(output.Stdout);
+            }, ct).ConfigureAwait(false);
+            return _filesGate.IsCurrent(token) ? changes : null;
+        }, cancellationToken);
+    }
+
+    public Task<BlameDocument?> BlameAsync(string? revision, string path, bool allowLarge, CancellationToken cancellationToken)
     {
         var token = _diffGate.Next();
         return RunAsync(async ct =>
         {
             var document = await _scheduler.ReadAsync(async inner =>
             {
-                var arguments = string.IsNullOrEmpty(firstParent)
-                    ? GitCommands.ShowPatch(_toplevel, sha, path)
-                    : GitCommands.DiffRange(_toplevel, firstParent, sha, path);
-                var output = await ExecuteAsync(arguments, null, inner).ConfigureAwait(false);
+                var output = await ExecuteAsync(GitCommands.Blame(_toplevel, revision, path), null, inner).ConfigureAwait(false);
                 Checked(output);
-                return ToDiff(output, allowLarge);
+                if (!allowLarge && output.Stdout.Length > HistoryLimits.MaxDiffBytes)
+                    return BlameDocument.TooLarge;
+                var lines = BlameParser.Parse(_encoding.GetString(output.Stdout));
+                if (!allowLarge && lines.Count > HistoryLimits.MaxDiffLines)
+                    return BlameDocument.TooLarge;
+                return new BlameDocument(false, lines);
             }, ct).ConfigureAwait(false);
             return _diffGate.IsCurrent(token) ? document : null;
         }, cancellationToken);
     }
 
+    public Task SetHistoryAsync(HistoryQuery? query, CancellationToken cancellationToken) =>
+        RunAsync(async ct =>
+        {
+            lock (_stateLock)
+                _historyQuery = query is null || query.IsEmpty ? null : query;
+            await ReloadHistoryCoreAsync(ct).ConfigureAwait(false);
+        }, cancellationToken);
+
+    public Task StashPushAsync(string? message, CancellationToken cancellationToken) =>
+        MutateAsync(GitCommands.StashPush(_toplevel, message), null, cancellationToken);
+
+    public Task StashPopAsync(string stashRef, CancellationToken cancellationToken) =>
+        MutateAsync(GitCommands.StashPop(_toplevel, stashRef), null, cancellationToken);
+
+    public Task StashApplyAsync(string stashRef, CancellationToken cancellationToken) =>
+        MutateAsync(GitCommands.StashApply(_toplevel, stashRef), null, cancellationToken);
+
+    public Task StashDropAsync(string stashRef, CancellationToken cancellationToken) =>
+        MutateAsync(GitCommands.StashDrop(_toplevel, stashRef), null, cancellationToken);
+
+    public Task ResetAsync(string mode, string sha, CancellationToken cancellationToken) =>
+        MutateAsync(GitCommands.Reset(_toplevel, mode, sha), null, cancellationToken);
+
+    public Task CherryPickAsync(string sha, CancellationToken cancellationToken) =>
+        MutateAsync(GitCommands.CherryPick(_toplevel, sha), null, cancellationToken);
+
+    public Task RevertAsync(string sha, CancellationToken cancellationToken) =>
+        MutateAsync(GitCommands.Revert(_toplevel, sha), null, cancellationToken);
+
+    public Task AbortSequencerAsync(CancellationToken cancellationToken)
+    {
+        SequencerKind kind;
+        lock (_stateLock)
+            kind = _sequencer;
+        var command = kind switch
+        {
+            SequencerKind.CherryPick => GitCommands.AbortCherryPick(_toplevel),
+            SequencerKind.Revert => GitCommands.AbortRevert(_toplevel),
+            _ => GitCommands.AbortMerge(_toplevel),
+        };
+        return MutateAsync(command, null, cancellationToken);
+    }
+
+    public Task CreateTagAsync(string name, string sha, CancellationToken cancellationToken) =>
+        MutateAsync(GitCommands.CreateTag(_toplevel, name, sha), null, cancellationToken);
+
+    public Task DeleteTagAsync(string name, CancellationToken cancellationToken) =>
+        MutateAsync(GitCommands.DeleteTag(_toplevel, name), null, cancellationToken);
+
+    public Task AddRemoteAsync(string name, string url, CancellationToken cancellationToken) =>
+        MutateAsync(GitCommands.AddRemote(_toplevel, name, url), null, cancellationToken);
+
+    public Task RemoveRemoteAsync(string name, CancellationToken cancellationToken) =>
+        MutateAsync(GitCommands.RemoveRemote(_toplevel, name), null, cancellationToken);
+
+    public Task RenameRemoteAsync(string name, string newName, CancellationToken cancellationToken) =>
+        MutateAsync(GitCommands.RenameRemote(_toplevel, name, newName), null, cancellationToken);
+
     public Task StageFileAsync(string path, CancellationToken cancellationToken) =>
         MutateAsync(GitCommands.Stage(_toplevel, path), null, cancellationToken);
+
+    public Task StageAllAsync(CancellationToken cancellationToken)
+    {
+        var entries = Snapshot().Entries;
+        var pending = entries.Where(entry => entry.Kind != ChangeKind.Unmerged && (entry.Unstaged || entry.Kind == ChangeKind.Untracked)).ToList();
+        if (pending.Count == 0)
+            return Task.CompletedTask;
+        if (entries.Any(entry => entry.Kind == ChangeKind.Unmerged))
+        {
+            var paths = new List<string>();
+            foreach (var entry in pending)
+            {
+                if (!string.IsNullOrEmpty(entry.OriginalPath))
+                    paths.Add(entry.OriginalPath);
+                paths.Add(entry.Path);
+            }
+
+            return MutateAsync(GitCommands.StagePaths(_toplevel, paths), null, cancellationToken);
+        }
+
+        return MutateAsync(GitCommands.StageAll(_toplevel), null, cancellationToken);
+    }
+
+    public Task UnstageAllAsync(CancellationToken cancellationToken)
+    {
+        var staged = Snapshot().Entries.Any(entry => entry.Staged && entry.Kind != ChangeKind.Unmerged);
+        if (!staged)
+            return Task.CompletedTask;
+        var command = IsUnborn() ? GitCommands.UnstageAllUnborn(_toplevel) : GitCommands.UnstageAll(_toplevel);
+        return MutateAsync(command, null, cancellationToken);
+    }
 
     public Task UnstageFileAsync(string path, CancellationToken cancellationToken)
     {
@@ -193,10 +345,19 @@ public sealed class RepositorySession : IAsyncDisposable
     public Task DiscardUntrackedAsync(string path, CancellationToken cancellationToken) =>
         MutateAsync(GitCommands.DiscardUntracked(_toplevel, path), null, cancellationToken);
 
-    public Task ApplyHunkAsync(string rawPatch, int hunkIndex, bool reverse, CancellationToken cancellationToken)
+    public Task ApplyHunkAsync(string rawPatch, int hunkIndex, bool reverse, CancellationToken cancellationToken) =>
+        ApplyPatchTextAsync(HunkPatch.Slice(rawPatch, hunkIndex), reverse, cancellationToken);
+
+    public Task ApplyLineAsync(string rawPatch, int hunkIndex, int lineIndex, bool reverse, CancellationToken cancellationToken)
     {
-        var patch = HunkPatch.Slice(rawPatch, hunkIndex);
-        return RunAsync(async ct =>
+        var patch = LinePatch.Slice(rawPatch, hunkIndex, lineIndex);
+        if (patch is null)
+            throw new InvalidOperationException("That line cannot be staged on its own.");
+        return ApplyPatchTextAsync(patch, reverse, cancellationToken);
+    }
+
+    private Task ApplyPatchTextAsync(string patch, bool reverse, CancellationToken cancellationToken) =>
+        RunAsync(async ct =>
         {
             await _scheduler.WriteAsync(async token =>
             {
@@ -217,9 +378,8 @@ public sealed class RepositorySession : IAsyncDisposable
             }, ct).ConfigureAwait(false);
             await LoadRefsAndMaybeHistoryAsync(ct, statusAlreadyApplied: false).ConfigureAwait(false);
         }, cancellationToken);
-    }
 
-    public Task CommitAsync(string message, CancellationToken cancellationToken) =>
+    public Task CommitAsync(string message, CancellationToken cancellationToken, bool noVerify = false) =>
         RunAsync(async ct =>
         {
             await _scheduler.WriteAsync(async token =>
@@ -228,7 +388,7 @@ public sealed class RepositorySession : IAsyncDisposable
                 try
                 {
                     await File.WriteAllTextAsync(file, message, new UTF8Encoding(false), token).ConfigureAwait(false);
-                    Checked(await ExecuteAsync(GitCommands.Commit(_toplevel, file), null, token).ConfigureAwait(false));
+                    Checked(await ExecuteAsync(GitCommands.Commit(_toplevel, file, noVerify), null, token).ConfigureAwait(false));
                     return 0;
                 }
                 finally
@@ -310,11 +470,14 @@ public sealed class RepositorySession : IAsyncDisposable
             var status = await statusTask.ConfigureAwait(false);
             var refs = await refsTask.ConfigureAwait(false);
             var log = await logTask.ConfigureAwait(false);
+            var includeStash = refs.Refs.Any(reference => reference.Name == "refs/stash");
             lock (_stateLock)
             {
                 ApplyStatus(status);
                 _refs = refs.Refs.ToList();
                 _remotes = refs.Remotes.ToList();
+                _stashes = refs.Stashes.ToList();
+                _includeStash = includeStash;
                 _tipSignature = Tips(_branch, _refs);
                 _lanes.Reset();
                 _commits = Build(_lanes, log.Commits);
@@ -322,6 +485,9 @@ public sealed class RepositorySession : IAsyncDisposable
                 _historyCapped = false;
                 _historyGeneration = 1;
             }
+
+            if (includeStash)
+                await ReloadHistoryCoreAsync(ct).ConfigureAwait(false);
         }, cancellationToken).ConfigureAwait(false);
     }
 
@@ -344,6 +510,8 @@ public sealed class RepositorySession : IAsyncDisposable
                 ApplyStatus(statusTask.Result);
             _refs = refs.Refs.ToList();
             _remotes = refs.Remotes.ToList();
+            _stashes = refs.Stashes.ToList();
+            _includeStash = _refs.Exists(reference => reference.Name == "refs/stash");
             _tipSignature = Tips(_branch, _refs);
             reload = oldOid != _branch.Oid || oldTips != _tipSignature;
         }
@@ -413,33 +581,111 @@ public sealed class RepositorySession : IAsyncDisposable
             var remoteOutput = Checked(await ExecuteAsync(GitCommands.Remotes(_toplevel), null, token).ConfigureAwait(false));
             var names = Encoding.UTF8.GetString(remoteOutput.Stdout)
                 .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
-            return new RefLoad(RefParser.Parse(refsOutput.Stdout, _encoding), names);
+            var parsed = RefParser.Parse(refsOutput.Stdout, _encoding);
+            IReadOnlyList<StashEntry> stashes = [];
+            if (parsed.Any(reference => reference.Name == "refs/stash"))
+            {
+                var stashOutput = Checked(await ExecuteAsync(GitCommands.StashList(_toplevel), null, token).ConfigureAwait(false));
+                stashes = StashParser.Parse(stashOutput.Stdout, _encoding);
+            }
+
+            return new RefLoad(parsed, names, stashes);
         }, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task<LogLoad> QueryLogAsync(int skip, int count, CancellationToken cancellationToken)
     {
+        HistoryQuery? query;
+        bool includeStash;
+        lock (_stateLock)
+        {
+            query = _historyQuery;
+            includeStash = _includeStash && query?.Revision is null && query?.ShaLookup != true;
+        }
+
         return await _scheduler.ReadAsync(async token =>
         {
-            var output = await ExecuteAsync(GitCommands.Log(_toplevel, skip, count), null, token).ConfigureAwait(false);
-            if (output.ExitCode != 0 && LogParser.IsUnborn(output.StandardError))
+            if (query is { ShaLookup: true, Revision: { } revision })
             {
-                // HEAD is unborn. Ask again without it so commits on other branches still appear.
-                output = await ExecuteAsync(GitCommands.Log(_toplevel, skip, count, includeHead: false), null, token).ConfigureAwait(false);
+                var resolved = await ExecuteAsync(GitCommands.RevParseCommit(_toplevel, revision), null, token).ConfigureAwait(false);
+                if (resolved.ExitCode != 0)
+                {
+                    Track(resolved);
+                    throw new GitCommandFailedException(resolved);
+                }
+
+                var sha = _encoding.GetString(resolved.Stdout).Trim();
+                Track(resolved);
+                var found = await ReadLogAsync(token, 0, 1, includeHead: false, includeStash: false, sha, null, null, query.Path).ConfigureAwait(false);
+                return new LogLoad(found.Commits, true);
             }
 
-            if (output.ExitCode != 0)
+            if (query is { MatchSubjectOrAuthor: true })
             {
-                Track(output);
-                if (LogParser.IsUnborn(output.StandardError))
-                    return new LogLoad([], true);
-                throw new GitCommandFailedException(output);
+                var take = skip + count;
+                var bySubject = await ReadLogAsync(token, 0, take, query.Revision is null, includeStash, query.Revision, query.Grep, null, query.Path).ConfigureAwait(false);
+                var byAuthor = await ReadLogAsync(token, 0, take, query.Revision is null, includeStash, query.Revision, null, query.Author, query.Path).ConfigureAwait(false);
+                var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                var merged = new List<CommitRecord>();
+                foreach (var commit in bySubject.Commits.Concat(byAuthor.Commits).OrderByDescending(commit => commit.AuthorUnixSeconds))
+                {
+                    if (seen.Add(commit.Sha))
+                        merged.Add(commit);
+                }
+
+                var page = merged.Skip(skip).Take(count).ToList();
+                var ended = bySubject.Ended && byAuthor.Ended;
+                return new LogLoad(page, ended);
             }
 
-            Track(output);
-            var commits = LogParser.Parse(output.Stdout, _encoding);
-            return new LogLoad(commits, commits.Count < count);
+            var includeHead = query?.Revision is null;
+            return await ReadLogAsync(
+                token,
+                skip,
+                count,
+                includeHead,
+                includeStash && includeHead,
+                query?.Revision,
+                query is { MatchSubjectOrAuthor: false } ? query.Grep : null,
+                query is { MatchSubjectOrAuthor: false } ? query.Author : null,
+                query?.Path).ConfigureAwait(false);
         }, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<LogLoad> ReadLogAsync(
+        CancellationToken token,
+        int skip,
+        int count,
+        bool includeHead,
+        bool includeStash,
+        string? revision,
+        string? grep,
+        string? author,
+        string? path)
+    {
+        var output = await ExecuteAsync(
+            GitCommands.Log(_toplevel, skip, count, includeHead, includeStash, revision, grep, author, path),
+            null,
+            token).ConfigureAwait(false);
+        if (output.ExitCode != 0 && includeHead && LogParser.IsUnborn(output.StandardError))
+        {
+            output = await ExecuteAsync(
+                GitCommands.Log(_toplevel, skip, count, includeHead: false, includeStash, revision, grep, author, path),
+                null,
+                token).ConfigureAwait(false);
+        }
+
+        if (output.ExitCode != 0)
+        {
+            Track(output);
+            if (LogParser.IsUnborn(output.StandardError))
+                return new LogLoad([], true);
+            throw new GitCommandFailedException(output);
+        }
+
+        Track(output);
+        var commits = LogParser.Parse(output.Stdout, _encoding);
+        return new LogLoad(commits, commits.Count < count);
     }
 
     private async Task ReloadConfigAsync(CancellationToken cancellationToken)
@@ -559,11 +805,21 @@ public sealed class RepositorySession : IAsyncDisposable
         _branch = status.Snapshot.Branch;
         _entries = status.Snapshot.Entries.ToList();
         _statusDuration = status.Duration;
-        var mergeHead = Path.Combine(_gitDirectory, "MERGE_HEAD");
-        _merge = File.Exists(mergeHead) || _entries.Exists(entry => entry.Kind == ChangeKind.Unmerged);
+        var mergeHead = File.Exists(Path.Combine(_gitDirectory, "MERGE_HEAD"));
+        var cherryPick = File.Exists(Path.Combine(_gitDirectory, "CHERRY_PICK_HEAD"));
+        var revert = File.Exists(Path.Combine(_gitDirectory, "REVERT_HEAD"));
+        var unmerged = _entries.Exists(entry => entry.Kind == ChangeKind.Unmerged);
+        _sequencer = cherryPick
+            ? SequencerKind.CherryPick
+            : revert
+                ? SequencerKind.Revert
+                : mergeHead || unmerged
+                    ? SequencerKind.Merge
+                    : SequencerKind.None;
+        _merge = _sequencer == SequencerKind.Merge;
         var messagePath = Path.Combine(_gitDirectory, "MERGE_MSG");
         _mergeMessage = null;
-        if (_merge && File.Exists(messagePath))
+        if (_sequencer != SequencerKind.None && File.Exists(messagePath))
         {
             try
             {
@@ -582,10 +838,26 @@ public sealed class RepositorySession : IAsyncDisposable
             return _branch.Unborn;
     }
 
-    private async Task<DiffDocument> DiffUntrackedAsync(string path, bool allowLarge, CancellationToken cancellationToken)
+    private Task<DiffDocument?> ReadDiffAsync(
+        int token,
+        bool allowLarge,
+        CancellationToken cancellationToken,
+        Func<CancellationToken, Task<GitOutput>> execute) =>
+        RunAsync(async ct =>
+        {
+            var document = await _scheduler.ReadAsync(async inner =>
+            {
+                var output = await execute(inner).ConfigureAwait(false);
+                Checked(output);
+                return ToDiff(output, allowLarge);
+            }, ct).ConfigureAwait(false);
+            return _diffGate.IsCurrent(token) ? document : null;
+        }, cancellationToken);
+
+    private async Task<DiffDocument> DiffUntrackedAsync(string path, bool allowLarge, bool ignoreWhitespace, CancellationToken cancellationToken)
     {
         // git diff --no-index exits 1 when the files differ. That is a diff, not a failure.
-        var output = await ExecuteAsync(GitCommands.DiffUntracked(_toplevel, path), null, cancellationToken).ConfigureAwait(false);
+        var output = await ExecuteAsync(GitCommands.DiffUntracked(_toplevel, path, ignoreWhitespace), null, cancellationToken).ConfigureAwait(false);
         var failed = output.ExitCode != 0
             && (output.ExitCode != 1 || output.Stdout.Length == 0 || output.StandardError.Contains("fatal:", StringComparison.OrdinalIgnoreCase));
         if (failed)
@@ -606,10 +878,17 @@ public sealed class RepositorySession : IAsyncDisposable
     {
         if (!allowLarge && output.Stdout.Length > HistoryLimits.MaxDiffBytes)
             return DiffDocument.TooLarge;
-        var document = DiffParser.Parse(_encoding.GetString(output.Stdout));
-        if (!allowLarge && document.LineCount > HistoryLimits.MaxDiffLines)
+        var text = _encoding.GetString(output.Stdout);
+        var files = DiffParser.ParseFiles(text);
+        var lines = 0;
+        foreach (var file in files)
+            lines += file.Document.LineCount;
+        if (!allowLarge && lines > HistoryLimits.MaxDiffLines)
             return DiffDocument.TooLarge;
-        return document;
+        if (files.Count == 1)
+            return files[0].Document;
+        var normalized = text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
+        return new DiffDocument(false, false, false, false, false, [], normalized);
     }
 
     private static List<GraphCommit> Build(LaneAssigner lanes, IReadOnlyList<CommitRecord> commits)
@@ -644,7 +923,7 @@ public sealed class RepositorySession : IAsyncDisposable
 
     private readonly record struct StatusLoad(StatusSnapshot Snapshot, TimeSpan Duration);
 
-    private readonly record struct RefLoad(IReadOnlyList<GitRef> Refs, IReadOnlyList<string> Remotes);
+    private readonly record struct RefLoad(IReadOnlyList<GitRef> Refs, IReadOnlyList<string> Remotes, IReadOnlyList<StashEntry> Stashes);
 
     private readonly record struct LogLoad(IReadOnlyList<CommitRecord> Commits, bool Ended);
 }

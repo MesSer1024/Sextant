@@ -208,6 +208,95 @@ public class SessionTests
     }
 
     [Fact]
+    public async Task Stage_all_and_unstage_all_round_trip_after_a_commit()
+    {
+        using var repo = new TempRepo();
+        repo.WriteFile("a.txt", "one\n");
+        repo.CommitAll("first");
+        repo.WriteFile("a.txt", "two\n");
+        repo.WriteFile("b.txt", "new\n");
+        await using var session = await Open(repo);
+
+        await session.StageAllAsync(CancellationToken.None);
+        var staged = session.Snapshot();
+        Assert.Contains(staged.Entries, entry => entry.Path == "a.txt" && entry.Staged && !entry.Unstaged);
+        Assert.Contains(staged.Entries, entry => entry.Path == "b.txt" && entry.Staged);
+
+        await session.UnstageAllAsync(CancellationToken.None);
+        var cleared = session.Snapshot();
+        Assert.Contains(cleared.Entries, entry => entry.Path == "a.txt" && entry.Unstaged && !entry.Staged);
+        Assert.Contains(cleared.Entries, entry => entry.Path == "b.txt" && entry.Kind == ChangeKind.Untracked);
+        Assert.Contains("two", File.ReadAllText(Path.Combine(repo.Directory, "a.txt")), StringComparison.Ordinal);
+        Assert.DoesNotContain(cleared.Commands, command => command.ExitCode != 0);
+    }
+
+    [Fact]
+    public async Task Unstage_all_before_the_first_commit_keeps_the_worktree_files()
+    {
+        using var repo = new TempRepo();
+        repo.WriteFile("a.txt", "hello\n");
+        repo.WriteFile("b.txt", "there\n");
+        await using var session = await Open(repo);
+        await session.StageAllAsync(CancellationToken.None);
+        await session.UnstageAllAsync(CancellationToken.None);
+
+        Assert.Contains("hello", File.ReadAllText(Path.Combine(repo.Directory, "a.txt")), StringComparison.Ordinal);
+        Assert.Contains("there", File.ReadAllText(Path.Combine(repo.Directory, "b.txt")), StringComparison.Ordinal);
+        var state = session.Snapshot();
+        Assert.Contains(state.Entries, entry => entry.Path == "a.txt" && entry.Kind == ChangeKind.Untracked);
+        Assert.Contains(state.Entries, entry => entry.Path == "b.txt" && entry.Kind == ChangeKind.Untracked);
+        Assert.DoesNotContain(state.Entries, entry => entry.Staged);
+        Assert.DoesNotContain(state.Commands, command => command.ExitCode != 0);
+    }
+
+    [Fact]
+    public async Task Stage_all_during_a_conflict_leaves_the_unmerged_path()
+    {
+        using var repo = new TempRepo();
+        repo.WriteFile("a.txt", "base\n");
+        repo.CommitAll("base");
+        var branch = repo.CurrentBranch();
+        repo.Run("switch", "-c", "other");
+        repo.WriteFile("a.txt", "other\n");
+        repo.CommitAll("other");
+        repo.Run("switch", branch);
+        repo.WriteFile("a.txt", "main\n");
+        repo.CommitAll("main");
+
+        await using var session = await Open(repo);
+        await Assert.ThrowsAsync<GitCommandFailedException>(() => session.MergeAsync("other", CancellationToken.None));
+        repo.WriteFile("b.txt", "side\n");
+        await session.RefreshStatusAsync(CancellationToken.None);
+        await session.StageAllAsync(CancellationToken.None);
+
+        var state = session.Snapshot();
+        Assert.Contains(state.Entries, entry => entry.Path == "a.txt" && entry.Kind == ChangeKind.Unmerged);
+        Assert.Contains(state.Entries, entry => entry.Path == "b.txt" && entry.Staged);
+        Assert.DoesNotContain(state.Commands, command => command.Arguments.Contains("-A"));
+    }
+
+    [Fact]
+    public async Task Commit_without_hooks_skips_a_failing_pre_commit()
+    {
+        using var repo = new TempRepo();
+        repo.WriteFile("a.txt", "one\n");
+        repo.CommitAll("first");
+        var hook = Path.Combine(repo.Directory, ".empty-hooks", "pre-commit");
+        File.WriteAllText(hook, "#!/bin/sh\nexit 1\n", new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        repo.WriteFile("a.txt", "two\n");
+        await using var session = await Open(repo);
+        await session.StageFileAsync("a.txt", CancellationToken.None);
+
+        await Assert.ThrowsAsync<GitCommandFailedException>(() => session.CommitAsync("blocked\n", CancellationToken.None));
+        Assert.Contains(session.Snapshot().Entries, entry => entry.Path == "a.txt" && entry.Staged);
+
+        await session.CommitAsync("allowed\n", CancellationToken.None, noVerify: true);
+        var state = session.Snapshot();
+        Assert.Equal("allowed", state.Commits[0].Commit.Subject);
+        Assert.Contains(state.Commands, command => command.Arguments.Contains("--no-verify") && command.ExitCode == 0);
+    }
+
+    [Fact]
     public async Task Cancelling_the_runner_kills_the_process()
     {
         var runner = new GitProcessRunner();

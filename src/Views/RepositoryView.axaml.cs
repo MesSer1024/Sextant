@@ -58,7 +58,7 @@ public partial class RepositoryView : UserControl
 
     private ColumnDefinition GraphColumn => Columns.ColumnDefinitions[2];
 
-    private RowDefinition FilesRow => Details.RowDefinitions[1];
+    private RowDefinition FilesRow => Details.RowDefinitions[2];
 
     public void ReadWidths(MainViewModel vm)
     {
@@ -225,6 +225,32 @@ public partial class RepositoryView : UserControl
             vm.CommitCommand.Execute(null);
             e.Handled = true;
         }
+    }
+
+    private void OnHistoryKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter && DataContext is RepositoryViewModel vm)
+        {
+            vm.SearchHistoryCommand.Execute(null);
+            e.Handled = true;
+        }
+    }
+
+    private void OnGraphSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (DataContext is not RepositoryViewModel vm || sender is not ListBox list)
+            return;
+        var rows = new List<GraphRowViewModel>();
+        if (list.SelectedItems is not null)
+        {
+            foreach (var item in list.SelectedItems)
+            {
+                if (item is GraphRowViewModel row)
+                    rows.Add(row);
+            }
+        }
+
+        vm.NoteGraphSelection(rows);
     }
 
     private void OnLocationDoubleTapped(object? sender, TappedEventArgs e)

@@ -1,7 +1,9 @@
+using Avalonia.Media;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Sextant.Git;
+using Sextant.Git.Parsing;
 using Sextant.Services;
 using System.Collections.ObjectModel;
 using System.Globalization;
@@ -149,6 +151,14 @@ public partial class RepositoryViewModel : ViewModelBase
 
     public bool CanCommit => !IsBusy && ShowingWorkingCopy && !string.IsNullOrWhiteSpace(CommitMessage);
 
+    public bool CanStageAll => !IsBusy && ShowingWorkingCopy && _hasUnstagedWork;
+
+    public bool CanUnstageAll => !IsBusy && ShowingWorkingCopy && _hasStagedWork;
+
+    private bool _hasUnstagedWork;
+
+    private bool _hasStagedWork;
+
     public bool CanRunCommands => !IsBusy;
 
     public bool CanCheckoutLocation => SelectedLocation?.ShowCheckout == true;
@@ -212,15 +222,27 @@ public partial class RepositoryViewModel : ViewModelBase
     public Task Push() => PushCoreAsync();
 
     [RelayCommand]
-    public async Task Commit()
+    public Task Commit() => CommitCoreAsync(noVerify: false);
+
+    [RelayCommand]
+    private Task CommitWithoutHooks() => CommitCoreAsync(noVerify: true);
+
+    private async Task CommitCoreAsync(bool noVerify)
     {
         if (!CanCommit || _session is null)
             return;
         var message = CommitMessage;
-        var ok = await RunAsync("Committing…", ct => _session.CommitAsync(message, ct));
+        var label = noVerify ? "Committing without hooks…" : "Committing…";
+        var ok = await RunAsync(label, ct => _session.CommitAsync(message, ct, noVerify));
         if (ok)
             CommitMessage = "";
     }
+
+    [RelayCommand]
+    private Task StageAll() => RunAsync("Staging all…", ct => Session.StageAllAsync(ct));
+
+    [RelayCommand]
+    private Task UnstageAll() => RunAsync("Unstaging all…", ct => Session.UnstageAllAsync(ct));
 
     [RelayCommand]
     private void Cancel() => _operation?.Cancel();
@@ -241,10 +263,17 @@ public partial class RepositoryViewModel : ViewModelBase
     {
         if (_host.Dialogs is null || _session is null || IsBusy)
             return;
-        var ok = await _host.Dialogs.ConfirmAsync("Abort merge", "Abort the current merge and return to HEAD?", "Abort merge");
+        var kind = _session.Snapshot().Sequencer;
+        var noun = kind switch
+        {
+            SequencerKind.CherryPick => "cherry-pick",
+            SequencerKind.Revert => "revert",
+            _ => "merge",
+        };
+        var ok = await _host.Dialogs.ConfirmAsync("Abort", $"Abort the current {noun} and return to HEAD?", "Abort");
         if (!ok)
             return;
-        await RunAsync("Aborting merge…", ct => _session.AbortMergeAsync(ct));
+        await RunAsync("Aborting…", ct => _session.AbortSequencerAsync(ct));
     }
 
     [RelayCommand]
@@ -362,9 +391,14 @@ public partial class RepositoryViewModel : ViewModelBase
     {
         OnPropertyChanged(nameof(CanCommit));
         OnPropertyChanged(nameof(CanRunCommands));
+        NotifyBulkStage();
     }
 
-    partial void OnShowingWorkingCopyChanged(bool value) => OnPropertyChanged(nameof(CanCommit));
+    partial void OnShowingWorkingCopyChanged(bool value)
+    {
+        OnPropertyChanged(nameof(CanCommit));
+        NotifyBulkStage();
+    }
 
     partial void OnNothingStagedChanged(bool value) => OnPropertyChanged(nameof(CanCommit));
 
@@ -379,13 +413,23 @@ public partial class RepositoryViewModel : ViewModelBase
         OnPropertyChanged(nameof(CanDeleteLocation));
         OnPropertyChanged(nameof(CanUpstreamLocation));
         OnPropertyChanged(nameof(CanRevealLocation));
+        OnPropertyChanged(nameof(CanRenameLocation));
+        OnPropertyChanged(nameof(CanPopLocation));
+        OnPropertyChanged(nameof(CanApplyLocation));
+        OnPropertyChanged(nameof(CanDropLocation));
     }
 
     partial void OnSelectedGraphRowChanged(GraphRowViewModel? value)
     {
-        if (_applying)
+        if (_applying || _rangeOlder is not null)
             return;
-        _ = LoadDetailsAsync();
+        // The graph SelectionChanged handler records a multi-select range in this same turn.
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_applying || _rangeOlder is not null || !ReferenceEquals(SelectedGraphRow, value))
+                return;
+            _ = LoadDetailsAsync();
+        }, DispatcherPriority.Background);
     }
 
     partial void OnSelectedFileChanged(FileRowViewModel? value)
@@ -588,7 +632,7 @@ public partial class RepositoryViewModel : ViewModelBase
                 return;
             if (state.Remotes.Count == 0)
             {
-                Fail("This branch has no upstream, and adding remotes is not in this version.");
+                Fail("This branch has no upstream, and this repository has no remotes. Add a remote, then push.");
                 return;
             }
 
@@ -610,6 +654,12 @@ public partial class RepositoryViewModel : ViewModelBase
             BusyText = text;
     });
 
+    private void NotifyBulkStage()
+    {
+        OnPropertyChanged(nameof(CanStageAll));
+        OnPropertyChanged(nameof(CanUnstageAll));
+    }
+
     private void Fail(string message)
     {
         Banner = message;
@@ -618,6 +668,8 @@ public partial class RepositoryViewModel : ViewModelBase
 
     private void Apply(SessionState state)
     {
+        _rangeOlder = null;
+        _rangeNewer = null;
         var wantWork = SelectedGraphRow is null || SelectedGraphRow.IsWorkingCopy;
         var wantSha = SelectedGraphRow?.Sha;
         var wantPath = SelectedFile is { IsHeader: false } file ? file.Path : null;
@@ -633,11 +685,27 @@ public partial class RepositoryViewModel : ViewModelBase
             ShowAheadBehind = state.Branch.Ahead != 0 || state.Branch.Behind != 0;
             AheadBehindText = ShowAheadBehind ? $"↑{state.Branch.Ahead}  ↓{state.Branch.Behind}" : "";
             IsDirty = state.Entries.Count > 0;
-            IsConflicted = state.MergeInProgress;
-            if (state.MergeInProgress && !_wasMerge && string.IsNullOrWhiteSpace(CommitMessage) && !string.IsNullOrWhiteSpace(state.MergeMessage))
+            IsConflicted = state.Sequencer != SequencerKind.None;
+            ConflictText = state.Sequencer switch
+            {
+                SequencerKind.CherryPick => "Cherry-pick in progress. Resolve the files, stage them, and commit, or abort the cherry-pick.",
+                SequencerKind.Revert => "Revert in progress. Resolve the files, stage them, and commit, or abort the revert.",
+                _ => "Merge in progress. Resolve the files, stage them, and commit, or abort the merge.",
+            };
+            HistoryCaption = state.HistoryLabel ?? "";
+            HasHistoryFilter = state.HistoryLabel is { Length: > 0 };
+            if (state.Sequencer != SequencerKind.None && !_wasMerge && string.IsNullOrWhiteSpace(CommitMessage) && !string.IsNullOrWhiteSpace(state.MergeMessage))
                 CommitMessage = state.MergeMessage.Trim();
-            _wasMerge = state.MergeInProgress;
+            _wasMerge = state.Sequencer != SequencerKind.None;
             NothingStaged = !state.Entries.Any(entry => entry.Staged);
+            var hasUnstaged = state.Entries.Any(entry => entry.Kind != ChangeKind.Unmerged && (entry.Unstaged || entry.Kind == ChangeKind.Untracked));
+            var hasStaged = state.Entries.Any(entry => entry.Staged && entry.Kind != ChangeKind.Unmerged);
+            if (hasUnstaged != _hasUnstagedWork || hasStaged != _hasStagedWork)
+            {
+                _hasUnstagedWork = hasUnstaged;
+                _hasStagedWork = hasStaged;
+                NotifyBulkStage();
+            }
             ShowLoadMore = !state.HistoryEnded;
             LoadMoreText = state.HistoryCapped ? "Load more (past 50,000)" : "Load more";
 
@@ -745,11 +813,18 @@ public partial class RepositoryViewModel : ViewModelBase
             IsHead = !string.IsNullOrEmpty(state.Branch.Oid)
                 && string.Equals(state.Branch.Oid, commit.Commit.Sha, StringComparison.OrdinalIgnoreCase),
             ShowCheckout = checkout,
+            ShowRewrite = true,
             CheckoutCommand = checkout
                 ? new AsyncRelayCommand(() => RunAsync("Checking out…", ct => Session.SwitchAsync(name, ct)))
                 : UiCommands.Disabled,
             CreateBranchCommand = CreateBranchCommand,
             CopyShaCommand = new AsyncRelayCommand(() => CopyText(commit.Commit.Sha)),
+            ResetSoftCommand = new AsyncRelayCommand(() => ResetAsync(commit.Commit, "--soft")),
+            ResetMixedCommand = new AsyncRelayCommand(() => ResetAsync(commit.Commit, "--mixed")),
+            ResetHardCommand = new AsyncRelayCommand(() => ResetAsync(commit.Commit, "--hard")),
+            CherryPickCommand = new AsyncRelayCommand(() => CherryPickAsync(commit.Commit)),
+            RevertCommand = new AsyncRelayCommand(() => RevertAsync(commit.Commit)),
+            TagCommand = new AsyncRelayCommand(() => TagAsync(commit.Commit)),
         };
     }
 
@@ -791,10 +866,12 @@ public partial class RepositoryViewModel : ViewModelBase
             ShowUnstage = stagedList && !conflict,
             ShowDiscard = !conflict,
             ShowMergetool = conflict,
+            ShowHistory = true,
             StageCommand = new AsyncRelayCommand(() => RunAsync(conflict ? "Staging resolution…" : "Staging…", ct => Session.StageFileAsync(path, ct))),
             UnstageCommand = new AsyncRelayCommand(() => RunAsync("Unstaging…", ct => Session.UnstageFileAsync(path, ct))),
             DiscardCommand = new AsyncRelayCommand(() => DiscardAsync(path, untracked)),
             MergetoolCommand = new AsyncRelayCommand(() => RunAsync("Opening merge tool…", ct => Session.MergetoolAsync(path, ct))),
+            HistoryCommand = new AsyncRelayCommand(() => ShowFileHistoryAsync(path)),
         };
     }
 
@@ -879,8 +956,43 @@ public partial class RepositoryViewModel : ViewModelBase
                 Label = name,
                 Oid = tag.Oid,
                 ShowReveal = true,
+                ShowDelete = true,
                 RevealCommand = new AsyncRelayCommand(() => RevealAsync(tag.Oid)),
+                DeleteCommand = new AsyncRelayCommand(() => DeleteTagAsync(name)),
             });
+        }
+
+        Locations.Add(Header("Remotes"));
+        foreach (var remote in state.Remotes.OrderBy(name => name, StringComparer.Ordinal))
+        {
+            Locations.Add(new LocationItem
+            {
+                Key = "m:" + remote,
+                Label = remote,
+                ShowDelete = true,
+                ShowRename = true,
+                DeleteCommand = new AsyncRelayCommand(() => RemoveRemoteAsync(remote)),
+                RenameCommand = new AsyncRelayCommand(() => RenameRemoteAsync(remote)),
+            });
+        }
+
+        if (state.Stashes.Count > 0)
+        {
+            Locations.Add(Header("Stashes"));
+            foreach (var stash in state.Stashes)
+            {
+                Locations.Add(new LocationItem
+                {
+                    Key = "s:" + stash.Ref,
+                    Label = stash.Ref + "  " + stash.Subject,
+                    ShowPop = true,
+                    ShowApply = true,
+                    ShowDrop = true,
+                    PopCommand = new AsyncRelayCommand(() => PopStashAsync(stash)),
+                    ApplyCommand = new AsyncRelayCommand(() => ApplyStashAsync(stash)),
+                    DropCommand = new AsyncRelayCommand(() => DropStashAsync(stash)),
+                });
+            }
         }
 
         SelectedLocation = Locations.FirstOrDefault(item => item.Key == selected);
@@ -1119,6 +1231,8 @@ public partial class RepositoryViewModel : ViewModelBase
                     Label = change.OriginalPath is { Length: > 0 } original ? original + " → " + change.Path : change.Path,
                     StatusText = Letter(change.Kind),
                     Kind = change.Kind,
+                    ShowHistory = true,
+                    HistoryCommand = new AsyncRelayCommand(() => ShowFileHistoryAsync(change.Path)),
                 });
             }
 
@@ -1135,35 +1249,57 @@ public partial class RepositoryViewModel : ViewModelBase
     {
         if (_lifetime.IsCancellationRequested)
             return;
-        var file = SelectedFile;
-        var row = SelectedGraphRow;
-        if (file is null || file.IsHeader || _session is null)
+        if (ShowingBlame)
         {
-            ClearDiff(row is null || row.IsWorkingCopy ? "Select a file." : "");
+            await LoadBlameAsync();
+            return;
+        }
+
+        var file = SelectedFile is { IsHeader: false } selected ? selected : null;
+        var row = SelectedGraphRow;
+        var range = _rangeOlder is not null && _rangeNewer is not null;
+        var workingCopy = !range && (row is null || row.IsWorkingCopy);
+        if (_session is null || (!AllFiles && file is null))
+        {
+            ClearDiff(workingCopy ? "Select a file." : "");
             return;
         }
 
         ReplaceDetails();
         var token = _details!.Token;
         var allowLarge = _allowLarge;
+        var ignoreWhitespace = IgnoreWhitespace;
         try
         {
             DiffDocument? document;
-            if (row is null || row.IsWorkingCopy)
+            if (range)
             {
-                _viewingStaged = file.FromStagedList;
-                document = await _session.WorkingDiffAsync(file.Path, file.FromStagedList, file.Untracked, allowLarge, token);
+                _viewingStaged = false;
+                document = await _session.RangeDiffAsync(
+                    _rangeOlder!,
+                    _rangeNewer!,
+                    AllFiles ? null : file!.Path,
+                    allowLarge,
+                    ignoreWhitespace,
+                    token);
+            }
+            else if (workingCopy)
+            {
+                _viewingStaged = file?.FromStagedList == true;
+                document = AllFiles
+                    ? await _session.WorktreeDiffAsync(_viewingStaged, allowLarge, ignoreWhitespace, token)
+                    : await _session.WorkingDiffAsync(file!.Path, file.FromStagedList, file.Untracked, allowLarge, token, ignoreWhitespace);
             }
             else
             {
                 _viewingStaged = false;
-                var parent = _diffParent ?? (row.Commit?.Parents.Count > 0 ? row.Commit.Parents[0] : null);
-                document = await _session.CommitDiffAsync(row.Sha!, parent, file.Path, allowLarge, token);
+                var parent = _diffParent ?? (row?.Commit?.Parents.Count > 0 ? row.Commit.Parents[0] : null);
+                document = await _session.CommitDiffAsync(row!.Sha!, parent, AllFiles ? null : file!.Path, allowLarge, token, ignoreWhitespace);
             }
 
             if (document is null || token.IsCancellationRequested)
                 return;
-            RenderDiff(document, file, row is null || row.IsWorkingCopy);
+            RenderDiff(document, file, workingCopy);
         }
         catch (OperationCanceledException)
         {
@@ -1174,9 +1310,10 @@ public partial class RepositoryViewModel : ViewModelBase
         }
     }
 
-    private void RenderDiff(DiffDocument document, FileRowViewModel file, bool workingCopy)
+    private void RenderDiff(DiffDocument document, FileRowViewModel? file, bool workingCopy)
     {
         DiffRows.Clear();
+        BlameRows.Clear();
         _rawPatch = document.RawPatch;
         ShowLoadDiff = document.IsTooLarge;
         if (document.IsTooLarge)
@@ -1186,29 +1323,54 @@ public partial class RepositoryViewModel : ViewModelBase
             return;
         }
 
+        if (AllFiles)
+        {
+            var files = string.IsNullOrEmpty(document.RawPatch) ? [] : DiffParser.ParseFiles(document.RawPatch);
+            if (files.Count == 0)
+            {
+                HasDiffNotice = true;
+                DiffNotice = "No textual changes.";
+                return;
+            }
+
+            HasDiffNotice = false;
+            DiffNotice = "";
+            foreach (var entry in files)
+            {
+                DiffRows.Add(new DiffFileRow { Label = string.IsNullOrEmpty(entry.Path) ? "Diff" : entry.Path });
+                AppendFileDiff(entry.Document, workingCopy, KindForDiff(entry.Document));
+            }
+
+            return;
+        }
+
+        AppendFileDiff(document, workingCopy, file?.Kind ?? ChangeKind.Modified, notice: true);
+    }
+
+    private void AppendFileDiff(DiffDocument document, bool workingCopy, ChangeKind kind, bool notice = false)
+    {
         if (document.IsBinary)
         {
-            HasDiffNotice = true;
-            DiffNotice = "Binary file.";
+            NoteFile(notice, "Binary file.");
             return;
         }
 
         if (document.Hunks.Count == 0)
         {
-            HasDiffNotice = true;
-            DiffNotice = document.IsNewFile ? "New file." : "No textual changes.";
+            NoteFile(notice, document.IsNewFile ? "New file." : "No textual changes.");
             return;
         }
 
-        HasDiffNotice = false;
-        DiffNotice = "";
-        var hunks = workingCopy
-            && file.Kind == ChangeKind.Modified
-            && !document.IsNewFile
-            && !document.IsDeleted
-            && !document.IsRename
-            && !string.IsNullOrEmpty(document.RawPatch);
-        var label = _viewingStaged ? "Unstage hunk" : "Stage hunk";
+        if (notice)
+        {
+            HasDiffNotice = false;
+            DiffNotice = "";
+        }
+
+        var parts = CanStageParts(workingCopy, kind, document);
+        var patch = document.RawPatch;
+        var hunkLabel = _viewingStaged ? "Unstage hunk" : "Stage hunk";
+        var lineLabel = _viewingStaged ? "Unstage line" : "Stage line";
         for (var index = 0; index < document.Hunks.Count; index++)
         {
             var hunk = document.Hunks[index];
@@ -1216,37 +1378,143 @@ public partial class RepositoryViewModel : ViewModelBase
             DiffRows.Add(new DiffHunkRow
             {
                 Header = hunk.Header,
-                ShowAction = hunks,
-                ActionLabel = label,
-                ActionCommand = hunks
-                    ? new AsyncRelayCommand(() => ApplyShownHunkAsync(hunkIndex))
+                ShowAction = parts,
+                ActionLabel = hunkLabel,
+                ActionCommand = parts
+                    ? new AsyncRelayCommand(() => ApplyShownHunkAsync(patch, hunkIndex))
                     : UiCommands.Disabled,
             });
-            foreach (var line in hunk.Lines)
-            {
-                var (prefix, background) = line.Kind switch
-                {
-                    DiffLineKind.Added => ("+ ", DiffColors.Added),
-                    DiffLineKind.Removed => ("- ", DiffColors.Removed),
-                    _ => ("  ", DiffColors.Clear),
-                };
-                DiffRows.Add(new DiffLineRow { Text = prefix + line.Text, Background = background });
-            }
+            if (SideBySide)
+                AppendSideBySide(hunk);
+            else
+                AppendInline(hunk, parts, patch, hunkIndex, lineLabel);
         }
     }
 
-    private async Task ApplyShownHunkAsync(int index)
+    private void NoteFile(bool notice, string message)
     {
-        if (_session is null || string.IsNullOrEmpty(_rawPatch))
+        if (notice)
+        {
+            HasDiffNotice = true;
+            DiffNotice = message;
+            return;
+        }
+
+        DiffRows.Add(new DiffLineRow { Text = message, Background = DiffColors.Clear });
+    }
+
+    private void AppendInline(DiffHunk hunk, bool parts, string patch, int hunkIndex, string lineLabel)
+    {
+        for (var lineIndex = 0; lineIndex < hunk.Lines.Count; lineIndex++)
+        {
+            var line = hunk.Lines[lineIndex];
+            var (prefix, background) = line.Kind switch
+            {
+                DiffLineKind.Added => ("+ ", DiffColors.Added),
+                DiffLineKind.Removed => ("- ", DiffColors.Removed),
+                _ => ("  ", DiffColors.Clear),
+            };
+            var show = parts && line.Kind is DiffLineKind.Added or DiffLineKind.Removed;
+            var captured = lineIndex;
+            DiffRows.Add(new DiffLineRow
+            {
+                Text = prefix + line.Text,
+                Background = background,
+                ShowAction = show,
+                ActionLabel = lineLabel,
+                ActionCommand = show
+                    ? new AsyncRelayCommand(() => ApplyShownLineAsync(patch, hunkIndex, captured))
+                    : UiCommands.Disabled,
+            });
+        }
+    }
+
+    private void AppendSideBySide(DiffHunk hunk)
+    {
+        var removed = new Queue<string>();
+        foreach (var line in hunk.Lines)
+        {
+            switch (line.Kind)
+            {
+                case DiffLineKind.Removed:
+                    removed.Enqueue(line.Text);
+                    break;
+                case DiffLineKind.Added:
+                    if (removed.Count > 0)
+                        AddSide("- " + removed.Dequeue(), DiffColors.Removed, "+ " + line.Text, DiffColors.Added);
+                    else
+                        AddSide("", DiffColors.Clear, "+ " + line.Text, DiffColors.Added);
+                    break;
+                case DiffLineKind.Context:
+                    FlushRemoved();
+                    AddSide("  " + line.Text, DiffColors.Clear, "  " + line.Text, DiffColors.Clear);
+                    break;
+            }
+        }
+
+        FlushRemoved();
+
+        void FlushRemoved()
+        {
+            while (removed.Count > 0)
+                AddSide("- " + removed.Dequeue(), DiffColors.Removed, "", DiffColors.Clear);
+        }
+    }
+
+    private void AddSide(string left, IBrush leftBackground, string right, IBrush rightBackground)
+    {
+        DiffRows.Add(new DiffSideRow
+        {
+            Left = left,
+            Right = right,
+            LeftBackground = leftBackground,
+            RightBackground = rightBackground,
+        });
+    }
+
+    private static bool CanStageParts(bool workingCopy, ChangeKind kind, DiffDocument document) =>
+        workingCopy
+        && !document.IsRename
+        && !document.IsBinary
+        && !string.IsNullOrEmpty(document.RawPatch)
+        && kind is ChangeKind.Modified or ChangeKind.Added or ChangeKind.Untracked or ChangeKind.Deleted;
+
+    private static ChangeKind KindForDiff(DiffDocument document)
+    {
+        if (document.IsNewFile)
+            return ChangeKind.Added;
+        if (document.IsDeleted)
+            return ChangeKind.Deleted;
+        return ChangeKind.Modified;
+    }
+
+    private async Task ApplyShownHunkAsync(string patch, int index)
+    {
+        if (_session is null || string.IsNullOrEmpty(patch))
             return;
         var reverse = _viewingStaged;
-        var patch = _rawPatch;
         await RunAsync(reverse ? "Unstaging hunk…" : "Staging hunk…", ct => _session.ApplyHunkAsync(patch, index, reverse, ct));
+    }
+
+    private async Task ApplyShownLineAsync(string patch, int hunkIndex, int lineIndex)
+    {
+        if (_session is null || string.IsNullOrEmpty(patch))
+            return;
+        var reverse = _viewingStaged;
+        try
+        {
+            await RunAsync(reverse ? "Unstaging line…" : "Staging line…", ct => _session.ApplyLineAsync(patch, hunkIndex, lineIndex, reverse, ct));
+        }
+        catch (InvalidOperationException exception)
+        {
+            Fail(exception.Message);
+        }
     }
 
     private void ClearDiff(string notice)
     {
         DiffRows.Clear();
+        BlameRows.Clear();
         _rawPatch = null;
         ShowLoadDiff = false;
         DiffNotice = notice;
@@ -1278,8 +1546,15 @@ public partial class RepositoryViewModel : ViewModelBase
 
     private static string WorkingSummary(SessionState state)
     {
-        if (state.MergeInProgress)
-            return "Working copy  ·  Merge in progress";
+        var sequencer = state.Sequencer switch
+        {
+            SequencerKind.CherryPick => "Cherry-pick in progress",
+            SequencerKind.Revert => "Revert in progress",
+            SequencerKind.Merge => "Merge in progress",
+            _ => null,
+        };
+        if (sequencer is not null)
+            return "Working copy  ·  " + sequencer;
         if (state.Entries.Count == 0)
             return state.Branch.Unborn ? "Working copy  ·  No commits yet" : "Working copy  ·  Clean";
         var conflicts = state.Entries.Count(entry => entry.Kind == ChangeKind.Unmerged);
@@ -1332,6 +1607,8 @@ public partial class RepositoryViewModel : ViewModelBase
             return name["refs/remotes/".Length..];
         if (name.StartsWith("refs/tags/", StringComparison.Ordinal))
             return name["refs/tags/".Length..];
+        if (name == "refs/stash")
+            return "stash";
         return name;
     }
 
@@ -1394,6 +1671,8 @@ public partial class RepositoryViewModel : ViewModelBase
             builder.Append(reference.Name).Append('=').Append(reference.Oid).Append(reference.IsHead ? '*' : ' ').Append(reference.Upstream).Append('|');
         foreach (var remote in state.Remotes)
             builder.Append(remote).Append(';');
+        foreach (var stash in state.Stashes)
+            builder.Append(stash.Ref).Append('=').Append(stash.Sha).Append('|');
         return builder.ToString();
     }
 

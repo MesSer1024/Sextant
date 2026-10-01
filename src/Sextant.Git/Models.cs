@@ -102,6 +102,23 @@ public sealed record DiffDocument(
     public static DiffDocument Binary { get; } = new(true, false, false, false, false, [], "");
 }
 
+public enum SequencerKind
+{
+    None,
+    Merge,
+    CherryPick,
+    Revert,
+}
+
+public sealed record BlameLine(int Number, string Sha, string Author, string Summary, string Text, bool Uncommitted);
+
+public sealed record BlameDocument(bool IsTooLarge, IReadOnlyList<BlameLine> Lines)
+{
+    public static BlameDocument TooLarge { get; } = new(true, []);
+}
+
+public sealed record StashEntry(string Ref, string Sha, string Subject);
+
 public sealed record CommandLogEntry(
     DateTimeOffset At,
     IReadOnlyList<string> Arguments,
@@ -142,7 +159,13 @@ public sealed class SessionState
 
     public required bool MergeInProgress { get; init; }
 
+    public required SequencerKind Sequencer { get; init; }
+
     public required string? MergeMessage { get; init; }
+
+    public required string? HistoryLabel { get; init; }
+
+    public required IReadOnlyList<StashEntry> Stashes { get; init; }
 
     public required TimeSpan LastStatusDuration { get; init; }
 
