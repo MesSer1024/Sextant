@@ -23,6 +23,11 @@ public sealed class GitProcessRunner
         foreach (var argument in request.Arguments)
             info.ArgumentList.Add(argument);
         info.Environment["GIT_TERMINAL_PROMPT"] = "0";
+        if (request.Environment is not null)
+        {
+            foreach (var pair in request.Environment)
+                info.Environment[pair.Key] = pair.Value;
+        }
 
         using var process = new Process { StartInfo = info, EnableRaisingEvents = true };
         if (!process.Start())

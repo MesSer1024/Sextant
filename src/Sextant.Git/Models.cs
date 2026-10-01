@@ -108,6 +108,7 @@ public enum SequencerKind
     Merge,
     CherryPick,
     Revert,
+    Rebase,
 }
 
 public sealed record BlameLine(int Number, string Sha, string Author, string Summary, string Text, bool Uncommitted);

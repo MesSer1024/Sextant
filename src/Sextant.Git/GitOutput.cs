@@ -24,6 +24,8 @@ public sealed class GitRequest
     public string? WorkingDirectory { get; init; }
 
     public IProgress<string>? Progress { get; init; }
+
+    public IReadOnlyDictionary<string, string>? Environment { get; init; }
 }
 
 public sealed class GitCommandFailedException : Exception

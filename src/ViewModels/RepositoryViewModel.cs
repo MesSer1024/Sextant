@@ -270,6 +270,7 @@ public partial class RepositoryViewModel : ViewModelBase
         var kind = _session.Snapshot().Sequencer;
         var noun = kind switch
         {
+            SequencerKind.Rebase => "rebase",
             SequencerKind.CherryPick => "cherry-pick",
             SequencerKind.Revert => "revert",
             _ => "merge",
@@ -278,6 +279,14 @@ public partial class RepositoryViewModel : ViewModelBase
         if (!ok)
             return;
         await RunAsync("Aborting…", ct => _session.AbortSequencerAsync(ct));
+    }
+
+    [RelayCommand]
+    public async Task ContinueSequencer()
+    {
+        if (_session is null || IsBusy)
+            return;
+        await RunAsync("Continuing…", ct => _session.ContinueSequencerAsync(ct));
     }
 
     [RelayCommand]
@@ -692,9 +701,10 @@ public partial class RepositoryViewModel : ViewModelBase
             IsConflicted = state.Sequencer != SequencerKind.None;
             ConflictText = state.Sequencer switch
             {
-                SequencerKind.CherryPick => "Cherry-pick in progress. Resolve the files, stage them, and commit, or abort the cherry-pick.",
-                SequencerKind.Revert => "Revert in progress. Resolve the files, stage them, and commit, or abort the revert.",
-                _ => "Merge in progress. Resolve the files, stage them, and commit, or abort the merge.",
+                SequencerKind.Rebase => "Rebase in progress. Resolve the files, stage them, and continue, or abort the rebase.",
+                SequencerKind.CherryPick => "Cherry-pick in progress. Resolve the files, stage them, and continue, or abort the cherry-pick.",
+                SequencerKind.Revert => "Revert in progress. Resolve the files, stage them, and continue, or abort the revert.",
+                _ => "Merge in progress. Resolve the files, stage them, and continue, or abort the merge.",
             };
             HistoryCaption = state.HistoryLabel ?? "";
             HasHistoryFilter = state.HistoryLabel is { Length: > 0 };
@@ -1707,6 +1717,7 @@ public partial class RepositoryViewModel : ViewModelBase
     {
         var sequencer = state.Sequencer switch
         {
+            SequencerKind.Rebase => "Rebase in progress",
             SequencerKind.CherryPick => "Cherry-pick in progress",
             SequencerKind.Revert => "Revert in progress",
             SequencerKind.Merge => "Merge in progress",

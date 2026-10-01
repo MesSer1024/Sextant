@@ -492,7 +492,10 @@ public partial class MainViewModel : ViewModelBase, IWorkspaceHost
             _palette.Add(new PaletteItem { Title = "Toggle all files", Run = () => tab.ToggleAllFilesCommand.ExecuteAsync(null) });
             _palette.Add(new PaletteItem { Title = "Toggle blame", Run = () => tab.ToggleBlameCommand.ExecuteAsync(null) });
             if (tab.IsConflicted)
+            {
+                _palette.Add(new PaletteItem { Title = "Continue", Run = tab.ContinueSequencer });
                 _palette.Add(new PaletteItem { Title = "Abort", Run = tab.AbortMerge });
+            }
             _palette.Add(new PaletteItem { Title = "Toggle command log", Run = () => { tab.CommandsOpen = !tab.CommandsOpen; return Task.CompletedTask; } });
         }
 

@@ -138,6 +138,21 @@ public static class GitCommands
     public static IReadOnlyList<string> AbortRevert(string toplevel) =>
         ["-C", toplevel, "revert", "--abort"];
 
+    public static IReadOnlyList<string> AbortRebase(string toplevel) =>
+        ["-C", toplevel, "rebase", "--abort"];
+
+    public static IReadOnlyList<string> ContinueMerge(string toplevel) =>
+        ["-C", toplevel, "merge", "--continue"];
+
+    public static IReadOnlyList<string> ContinueCherryPick(string toplevel) =>
+        ["-C", toplevel, "cherry-pick", "--continue"];
+
+    public static IReadOnlyList<string> ContinueRevert(string toplevel) =>
+        ["-C", toplevel, "revert", "--continue"];
+
+    public static IReadOnlyList<string> ContinueRebase(string toplevel) =>
+        ["-C", toplevel, "rebase", "--continue"];
+
     public static IReadOnlyList<string> CreateTag(string toplevel, string name, string sha) =>
         ["-C", toplevel, "tag", name, sha];
 

@@ -275,11 +275,37 @@ public sealed class RepositorySession : IAsyncDisposable
             kind = _sequencer;
         var command = kind switch
         {
+            SequencerKind.Rebase => GitCommands.AbortRebase(_toplevel),
             SequencerKind.CherryPick => GitCommands.AbortCherryPick(_toplevel),
             SequencerKind.Revert => GitCommands.AbortRevert(_toplevel),
             _ => GitCommands.AbortMerge(_toplevel),
         };
         return MutateAsync(command, null, cancellationToken);
+    }
+
+    public async Task ContinueSequencerAsync(CancellationToken cancellationToken)
+    {
+        SequencerKind kind;
+        lock (_stateLock)
+            kind = _sequencer;
+        var command = kind switch
+        {
+            SequencerKind.Rebase => GitCommands.ContinueRebase(_toplevel),
+            SequencerKind.CherryPick => GitCommands.ContinueCherryPick(_toplevel),
+            SequencerKind.Revert => GitCommands.ContinueRevert(_toplevel),
+            SequencerKind.Merge => GitCommands.ContinueMerge(_toplevel),
+            _ => null,
+        };
+        if (command is null)
+            return;
+        // Git for Windows runs the editor through its shell, which treats backslashes as escapes.
+        // `true` is that shell's no-op, and it is also the no-op on Linux and macOS.
+        var environment = new Dictionary<string, string>
+        {
+            ["GIT_EDITOR"] = "true",
+            ["GIT_SEQUENCE_EDITOR"] = "true",
+        };
+        await MutateAsync(command, null, cancellationToken, environment: environment).ConfigureAwait(false);
     }
 
     public Task CreateTagAsync(string name, string sha, CancellationToken cancellationToken) =>
@@ -716,7 +742,8 @@ public sealed class RepositorySession : IAsyncDisposable
         IReadOnlyList<string> arguments,
         IProgress<string>? progress,
         CancellationToken cancellationToken,
-        IReadOnlyList<string>? whenHeadMissing = null)
+        IReadOnlyList<string>? whenHeadMissing = null,
+        IReadOnlyDictionary<string, string>? environment = null)
     {
         await RunAsync(async ct =>
         {
@@ -725,7 +752,7 @@ public sealed class RepositorySession : IAsyncDisposable
             {
                 await _scheduler.WriteAsync(async token =>
                 {
-                    var output = await ExecuteAsync(arguments, progress, token).ConfigureAwait(false);
+                    var output = await ExecuteAsync(arguments, progress, token, environment).ConfigureAwait(false);
                     if (output.ExitCode != 0 && whenHeadMissing is not null && IsMissingHead(output.StandardError))
                         output = await ExecuteAsync(whenHeadMissing, null, token).ConfigureAwait(false);
                     Checked(output);
@@ -762,8 +789,12 @@ public sealed class RepositorySession : IAsyncDisposable
         return await work(linked.Token).ConfigureAwait(false);
     }
 
-    private Task<GitOutput> ExecuteAsync(IReadOnlyList<string> arguments, IProgress<string>? progress, CancellationToken cancellationToken) =>
-        ExecuteInAsync(arguments, _toplevel, progress, cancellationToken);
+    private Task<GitOutput> ExecuteAsync(
+        IReadOnlyList<string> arguments,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken,
+        IReadOnlyDictionary<string, string>? environment = null) =>
+        ExecuteInAsync(arguments, _toplevel, progress, cancellationToken, environment);
 
     private Task<GitOutput> ExecuteInAsync(IReadOnlyList<string> arguments, string workingDirectory, CancellationToken cancellationToken) =>
         ExecuteInAsync(arguments, workingDirectory, null, cancellationToken);
@@ -772,13 +803,15 @@ public sealed class RepositorySession : IAsyncDisposable
         IReadOnlyList<string> arguments,
         string? workingDirectory,
         IProgress<string>? progress,
-        CancellationToken cancellationToken) =>
+        CancellationToken cancellationToken,
+        IReadOnlyDictionary<string, string>? environment = null) =>
         _runner.RunAsync(new GitRequest
         {
             Executable = _executable,
             Arguments = arguments,
             WorkingDirectory = string.IsNullOrEmpty(workingDirectory) ? null : workingDirectory,
             Progress = progress,
+            Environment = environment,
         }, cancellationToken);
 
     private GitOutput Checked(GitOutput output)
@@ -810,17 +843,22 @@ public sealed class RepositorySession : IAsyncDisposable
         _branch = status.Snapshot.Branch;
         _entries = status.Snapshot.Entries.ToList();
         _statusDuration = status.Duration;
-        var mergeHead = File.Exists(Path.Combine(_gitDirectory, "MERGE_HEAD"));
-        var cherryPick = File.Exists(Path.Combine(_gitDirectory, "CHERRY_PICK_HEAD"));
-        var revert = File.Exists(Path.Combine(_gitDirectory, "REVERT_HEAD"));
+        var git = _gitDirectory;
+        var rebase = Directory.Exists(Path.Combine(git, "rebase-merge"))
+            || Directory.Exists(Path.Combine(git, "rebase-apply"));
+        var mergeHead = File.Exists(Path.Combine(git, "MERGE_HEAD"));
+        var cherryPick = File.Exists(Path.Combine(git, "CHERRY_PICK_HEAD"));
+        var revert = File.Exists(Path.Combine(git, "REVERT_HEAD"));
         var unmerged = _entries.Exists(entry => entry.Kind == ChangeKind.Unmerged);
-        _sequencer = cherryPick
-            ? SequencerKind.CherryPick
-            : revert
-                ? SequencerKind.Revert
-                : mergeHead || unmerged
-                    ? SequencerKind.Merge
-                    : SequencerKind.None;
+        _sequencer = rebase
+            ? SequencerKind.Rebase
+            : cherryPick
+                ? SequencerKind.CherryPick
+                : revert
+                    ? SequencerKind.Revert
+                    : mergeHead || unmerged
+                        ? SequencerKind.Merge
+                        : SequencerKind.None;
         _merge = _sequencer == SequencerKind.Merge;
         var messagePath = Path.Combine(_gitDirectory, "MERGE_MSG");
         _mergeMessage = null;
