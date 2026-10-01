@@ -38,6 +38,9 @@ public partial class RepositoryViewModel
     [ObservableProperty]
     public partial bool ShowingImages { get; set; }
 
+    // A newer file selection bumps this so a finished load cannot clear the spinner that replaced it.
+    private int _imageLoad;
+
     public bool CanOpenLocation => SelectedLocation?.ShowOpen == true;
 
     [RelayCommand]
@@ -291,56 +294,149 @@ public partial class RepositoryViewModel
         var targets = ImageTargets(file);
         if (targets.Count == 0)
             return;
-        var loaded = new List<(string Path, ImagePreview Preview)>();
+
+        var load = ++_imageLoad;
+        var rows = new List<ImageCompareRow>(targets.Count);
         foreach (var target in targets)
+            rows.Add(new ImageCompareRow(target.Path, null, null, "", "") { IsLoading = true });
+        var visible = new List<ImageCompareRow>();
+        var published = false;
+        // A local file is often ready immediately. The spinner waits a moment so that case does not flash.
+        var spinnerDelay = Task.Delay(TimeSpan.FromMilliseconds(200));
+        try
         {
-            if (token.IsCancellationRequested)
-                return;
-            var beforeRevision = range ? _rangeOlder : _objectBefore;
-            var afterRevision = range ? _rangeNewer : _objectAfter;
-            var afterWorktree = !range && _afterIsWorktree;
-            if (!AllFiles && workingCopy && file?.Untracked == true && !_viewingStaged)
+            foreach (var pair in targets.Zip(rows))
             {
-                beforeRevision = null;
-                afterRevision = null;
-                afterWorktree = true;
+                if (token.IsCancellationRequested || load != _imageLoad)
+                    return;
+                var target = pair.First;
+                var row = pair.Second;
+                var beforeRevision = range ? _rangeOlder : _objectBefore;
+                var afterRevision = range ? _rangeNewer : _objectAfter;
+                var afterWorktree = !range && _afterIsWorktree;
+                if (!AllFiles && workingCopy && file?.Untracked == true && !_viewingStaged)
+                {
+                    beforeRevision = null;
+                    afterRevision = null;
+                    afterWorktree = true;
+                }
+
+                var previewTask = _session.PreviewImageAsync(
+                    new ImageRequest(target.Path, beforeRevision, afterRevision, false, afterWorktree, target.BeforePath),
+                    token);
+                if (!published)
+                {
+                    var winner = await Task.WhenAny(previewTask, spinnerDelay).ConfigureAwait(false);
+                    if (winner != previewTask && load == _imageLoad && !token.IsCancellationRequested)
+                    {
+                        await OnUi(() => published = PublishImageRows(load, rows, visible, published));
+                    }
+                }
+
+                var preview = await previewTask.ConfigureAwait(false);
+                if (token.IsCancellationRequested || load != _imageLoad)
+                    return;
+                await OnUi(() =>
+                {
+                    if (load != _imageLoad)
+                        return;
+                    FillImageRow(row, preview, published, visible);
+                });
             }
 
-            var preview = await _session.PreviewImageAsync(
-                new ImageRequest(target.Path, beforeRevision, afterRevision, false, afterWorktree, target.BeforePath),
-                token);
-            if (preview is null || token.IsCancellationRequested)
-                continue;
-            loaded.Add((target.Path, preview));
+            if (!published && load == _imageLoad && !token.IsCancellationRequested)
+                await OnUi(() => published = PublishImageRows(load, rows, visible, published));
+        }
+        finally
+        {
+            await OnUi(() => FinishImageLoad(load, rows, published));
+        }
+    }
+
+    private bool PublishImageRows(int load, List<ImageCompareRow> rows, List<ImageCompareRow> visible, bool published)
+    {
+        if (load != _imageLoad || published)
+            return published;
+        var show = new List<ImageCompareRow>();
+        foreach (var row in rows)
+        {
+            if (row.IsLoading || visible.Contains(row))
+                show.Add(row);
         }
 
-        if (token.IsCancellationRequested || loaded.Count == 0)
+        ReplaceImages(show);
+        return true;
+    }
+
+    private void FillImageRow(ImageCompareRow row, ImagePreview? preview, bool published, List<ImageCompareRow> visible)
+    {
+        if (preview is null)
+        {
+            row.IsLoading = false;
+            row.Release();
+            if (published)
+                RemoveImageRow(row);
             return;
-
-        void Apply()
-        {
-            if (token.IsCancellationRequested)
-                return;
-            var rows = new List<ImageCompareRow>(loaded.Count);
-            foreach (var item in loaded)
-            {
-                var before = DecodeImage(item.Preview.Before);
-                var after = DecodeImage(item.Preview.After);
-                rows.Add(new ImageCompareRow(
-                    item.Path,
-                    before,
-                    after,
-                    SideNotice(item.Preview.Before, before, item.Preview.BeforeNotice),
-                    SideNotice(item.Preview.After, after, item.Preview.AfterNotice)));
-            }
-
-            ReplaceImages(rows);
         }
 
+        var before = DecodeImage(preview.Before);
+        var after = DecodeImage(preview.After);
+        row.Before = before;
+        row.After = after;
+        row.BeforeNotice = SideNotice(preview.Before, before, preview.BeforeNotice);
+        row.AfterNotice = SideNotice(preview.After, after, preview.AfterNotice);
+        row.IsLoading = false;
+        if (!published && !visible.Contains(row))
+            visible.Add(row);
+    }
+
+    private void FinishImageLoad(int load, List<ImageCompareRow> rows, bool published)
+    {
+        if (load != _imageLoad)
+        {
+            if (!published)
+            {
+                foreach (var row in rows)
+                    row.Release();
+            }
+
+            return;
+        }
+
+        if (!published)
+        {
+            foreach (var row in rows)
+                row.Release();
+            return;
+        }
+
+        var pending = new List<ImageCompareRow>();
+        foreach (var row in ImageCompares)
+        {
+            if (row.IsLoading)
+                pending.Add(row);
+        }
+
+        foreach (var row in pending)
+            RemoveImageRow(row);
+    }
+
+    private void RemoveImageRow(ImageCompareRow row)
+    {
+        row.Release();
+        ImageCompares.Remove(row);
+        ShowingImages = ImageCompares.Count > 0;
+    }
+
+    private async Task OnUi(Action action)
+    {
         if (Dispatcher.UIThread.CheckAccess())
-            Apply();
-        else
-            await Dispatcher.UIThread.InvokeAsync(Apply);
+        {
+            action();
+            return;
+        }
+
+        await Dispatcher.UIThread.InvokeAsync(action);
     }
 
     private List<(string Path, string? BeforePath)> ImageTargets(FileRowViewModel? file)
@@ -588,6 +684,14 @@ public sealed class ImageCompareRow : ObservableObject
     }
 
     public string Path { get; }
+
+    private bool _loading;
+
+    public bool IsLoading
+    {
+        get => _loading;
+        set => SetProperty(ref _loading, value);
+    }
 
     public Bitmap? Before
     {

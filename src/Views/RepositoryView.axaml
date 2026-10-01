@@ -321,6 +321,13 @@
                                                     <Image Source="{Binding After}" Stretch="Uniform" MaxHeight="420" HorizontalAlignment="Center" VerticalAlignment="Center" IsVisible="{Binding HasAfter}"/>
                                                 </DockPanel>
                                             </Border>
+                                            <StackPanel Grid.ColumnSpan="3" IsVisible="{Binding IsLoading}" IsHitTestVisible="False"
+                                                        HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8">
+                                                <controls:LoadingSpinner Width="22" Height="22" HorizontalAlignment="Center"
+                                                                         IsVisible="{Binding IsLoading}"
+                                                                         AutomationProperties.Name="Loading image"/>
+                                                <TextBlock Text="Loading…" HorizontalAlignment="Center" Opacity="0.72"/>
+                                            </StackPanel>
                                         </Grid>
                                     </StackPanel>
                                 </DataTemplate>
