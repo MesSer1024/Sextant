@@ -120,14 +120,19 @@ public sealed class RepositorySession : IAsyncDisposable
     public Task<bool> LoadMoreHistoryAsync(bool pastCap, CancellationToken cancellationToken) =>
         RunAsync(ct => LoadMoreCoreAsync(pastCap, ct), cancellationToken);
 
-    public Task<IReadOnlyList<CommitFileChange>?> CommitFilesAsync(string sha, CancellationToken cancellationToken)
+    public Task<IReadOnlyList<CommitFileChange>?> CommitFilesAsync(string sha, string? firstParent, CancellationToken cancellationToken)
     {
         var token = _filesGate.Next();
         return RunAsync(async ct =>
         {
             var changes = await _scheduler.ReadAsync(async inner =>
             {
-                var output = await ExecuteAsync(GitCommands.NameStatus(_toplevel, sha), null, inner).ConfigureAwait(false);
+                // git show on a merge is a combined diff and lists only paths that differ from every parent.
+                // A clean merge then has an empty file list. The patch view already diffs the first parent.
+                var arguments = string.IsNullOrEmpty(firstParent)
+                    ? GitCommands.NameStatus(_toplevel, sha)
+                    : GitCommands.RangeNameStatus(_toplevel, firstParent, sha);
+                var output = await ExecuteAsync(arguments, null, inner).ConfigureAwait(false);
                 Checked(output);
                 return NameStatusParser.Parse(output.Stdout);
             }, ct).ConfigureAwait(false);

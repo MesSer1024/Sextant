@@ -297,6 +297,44 @@ public class SessionTests
     }
 
     [Fact]
+    public async Task Merge_commit_lists_files_changed_from_the_first_parent()
+    {
+        using var repo = new TempRepo();
+        repo.WriteFile("a.txt", "base\n");
+        repo.CommitAll("base");
+        var trunk = repo.CurrentBranch();
+        repo.Run("switch", "-c", "feature");
+        repo.WriteFile("feature.txt", "feature\n");
+        repo.CommitAll("feature work");
+        repo.Run("switch", trunk);
+        repo.WriteFile("trunk.txt", "trunk\n");
+        repo.CommitAll("trunk work");
+        repo.Run("switch", "feature");
+        repo.Run("merge", "--no-edit", trunk);
+        var sha = repo.RunCapture("rev-parse", "HEAD").Trim();
+        var parent = repo.RunCapture("rev-parse", "HEAD^1").Trim();
+        Assert.True(string.IsNullOrWhiteSpace(repo.RunCapture("show", "--format=", "--name-only", sha)));
+
+        await using var session = await Open(repo);
+        var files = await session.CommitFilesAsync(sha, parent, CancellationToken.None);
+        var change = Assert.Single(files!);
+        Assert.Equal("trunk.txt", change.Path);
+        Assert.Equal(ChangeKind.Added, change.Kind);
+    }
+
+    [Fact]
+    public async Task Root_commit_lists_files_without_a_parent()
+    {
+        using var repo = new TempRepo();
+        repo.WriteFile("a.txt", "one\n");
+        repo.CommitAll("first");
+        var sha = repo.RunCapture("rev-parse", "HEAD").Trim();
+        await using var session = await Open(repo);
+        var files = await session.CommitFilesAsync(sha, null, CancellationToken.None);
+        Assert.Equal("a.txt", Assert.Single(files!).Path);
+    }
+
+    [Fact]
     public async Task Cancelling_the_runner_kills_the_process()
     {
         var runner = new GitProcessRunner();

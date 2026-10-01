@@ -205,6 +205,11 @@
                 </StackPanel>
 
                 <ListBox x:Name="FileList" Grid.Row="2" ItemsSource="{Binding Files}" SelectedItem="{Binding SelectedFile}">
+                    <ListBox.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <VirtualizingStackPanel/>
+                        </ItemsPanelTemplate>
+                    </ListBox.ItemsPanel>
                     <ListBox.ItemTemplate>
                         <DataTemplate x:DataType="vm:FileRowViewModel">
                             <Grid ColumnDefinitions="22,*,Auto">

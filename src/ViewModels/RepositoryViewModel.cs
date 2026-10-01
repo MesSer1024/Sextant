@@ -61,7 +61,7 @@ public partial class RepositoryViewModel : ViewModelBase
 
     private readonly HashSet<string> _collapsedLocations = new(StringComparer.Ordinal);
 
-    public ObservableCollection<FileRowViewModel> Files { get; } = [];
+    public ResetCollection<FileRowViewModel> Files { get; } = [];
 
     public ObservableCollection<DiffRow> DiffRows { get; } = [];
 
@@ -1291,7 +1291,7 @@ public partial class RepositoryViewModel : ViewModelBase
         try
         {
             var parent = row.Commit?.Parents.Count > 0 ? row.Commit.Parents[0] : null;
-            var files = await _session.CommitFilesAsync(sha, token);
+            var files = await _session.CommitFilesAsync(sha, parent, token);
             if (files is null || token.IsCancellationRequested)
                 return;
             ShowCommitFiles(files);
@@ -1355,12 +1355,12 @@ public partial class RepositoryViewModel : ViewModelBase
         _applying = true;
         try
         {
-            Files.Clear();
+            var rows = new List<FileRowViewModel>(files.Count + 1);
             if (files.Count > 0)
-                Files.Add(new FileRowViewModel { IsHeader = true, Label = "Changes" });
+                rows.Add(new FileRowViewModel { IsHeader = true, Label = $"Changes ({files.Count})" });
             foreach (var change in files)
             {
-                Files.Add(new FileRowViewModel
+                rows.Add(new FileRowViewModel
                 {
                     Path = change.Path,
                     Label = change.OriginalPath is { Length: > 0 } original ? original + " → " + change.Path : change.Path,
@@ -1371,8 +1371,9 @@ public partial class RepositoryViewModel : ViewModelBase
                 });
             }
 
-            SelectedFile = Files.FirstOrDefault(candidate => !candidate.IsHeader && candidate.Path == previous)
-                ?? Files.FirstOrDefault(candidate => !candidate.IsHeader);
+            Files.Reset(rows);
+            SelectedFile = rows.FirstOrDefault(candidate => !candidate.IsHeader && candidate.Path == previous)
+                ?? rows.FirstOrDefault(candidate => !candidate.IsHeader);
         }
         finally
         {
