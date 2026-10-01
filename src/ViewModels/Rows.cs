@@ -1,7 +1,11 @@
+using Avalonia;
 using Avalonia.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Sextant.Git;
+using System.Collections.ObjectModel;
+using System.Collections.Specialized;
+using System.ComponentModel;
 using System.Windows.Input;
 
 namespace Sextant.ViewModels;
@@ -70,6 +74,20 @@ public partial class GraphRowViewModel : ObservableObject
     public ICommand TagCommand { get; init; } = UiCommands.Disabled;
 }
 
+public sealed class ResetCollection<T> : ObservableCollection<T>
+{
+    public void Reset(IReadOnlyList<T> items)
+    {
+        CheckReentrancy();
+        Items.Clear();
+        foreach (var item in items)
+            Items.Add(item);
+        OnPropertyChanged(new PropertyChangedEventArgs(nameof(Count)));
+        OnPropertyChanged(new PropertyChangedEventArgs("Item[]"));
+        OnCollectionChanged(new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset));
+    }
+}
+
 public partial class LocationItem : ObservableObject
 {
     public bool IsHeader { get; init; }
@@ -78,7 +96,24 @@ public partial class LocationItem : ObservableObject
 
     public string Key { get; init; } = "";
 
-    public string Label { get; init; } = "";
+    public string CollapseKey { get; set; } = "";
+
+    public string Label { get; set; } = "";
+
+    public int Depth { get; set; }
+
+    public ObservableCollection<LocationItem> Children { get; } = [];
+
+    public bool HasChildren => Children.Count > 0;
+
+    public Thickness Indent => new(Depth * 14, 0, 0, 0);
+
+    public double ExpandAngle => IsExpanded ? 90 : 0;
+
+    [ObservableProperty]
+    public partial bool IsExpanded { get; set; } = true;
+
+    partial void OnIsExpandedChanged(bool value) => OnPropertyChanged(nameof(ExpandAngle));
 
     public string? Oid { get; init; }
 

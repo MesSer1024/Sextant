@@ -55,7 +55,11 @@ public partial class RepositoryViewModel : ViewModelBase
 
     public ObservableCollection<GraphRowViewModel> Rows { get; } = [];
 
-    public ObservableCollection<LocationItem> Locations { get; } = [];
+    public ResetCollection<LocationItem> Locations { get; } = [];
+
+    private readonly List<LocationItem> _locationRoots = [];
+
+    private readonly HashSet<string> _collapsedLocations = new(StringComparer.Ordinal);
 
     public ObservableCollection<FileRowViewModel> Files { get; } = [];
 
@@ -894,14 +898,16 @@ public partial class RepositoryViewModel : ViewModelBase
     private void RebuildLocations(SessionState state)
     {
         var selected = SelectedLocation?.Key;
-        Locations.Clear();
-        Locations.Add(Header("Branches"));
+        RememberCollapsed();
+        _locationRoots.Clear();
+
+        var branches = new List<LocationItem>();
         foreach (var branch in state.Refs.Where(reference => reference.Name.StartsWith("refs/heads/", StringComparison.Ordinal))
                      .OrderBy(reference => reference.Name, StringComparer.Ordinal))
         {
             var name = ShortHead(branch.Name);
             var current = branch.IsHead;
-            Locations.Add(new LocationItem
+            branches.Add(new LocationItem
             {
                 Key = "b:" + name,
                 Label = name,
@@ -920,37 +926,41 @@ public partial class RepositoryViewModel : ViewModelBase
             });
         }
 
-        var remotes = state.Refs.Where(reference =>
+        _locationRoots.Add(Section("h:branches", "Branches", GroupLocations(branches, "b"), branches.Count));
+
+        var trackedRefs = state.Refs.Where(reference =>
             reference.Name.StartsWith("refs/remotes/", StringComparison.Ordinal)
             && !reference.Name.EndsWith("/HEAD", StringComparison.Ordinal)).ToList();
-        foreach (var group in remotes.GroupBy(reference => RemoteGroup(reference.Name)).OrderBy(group => group.Key, StringComparer.Ordinal))
+        foreach (var group in trackedRefs.GroupBy(reference => RemoteGroup(reference.Name)).OrderBy(group => group.Key, StringComparer.Ordinal))
         {
-            Locations.Add(Header(group.Key));
+            var tracked = new List<LocationItem>();
             foreach (var remote in group.OrderBy(reference => reference.Name, StringComparer.Ordinal))
             {
-                var tracked = ShortRemote(remote.Name);
-                var label = tracked.Length > group.Key.Length + 1 ? tracked[(group.Key.Length + 1)..] : tracked;
-                Locations.Add(new LocationItem
+                var name = ShortRemote(remote.Name);
+                var label = name.Length > group.Key.Length + 1 ? name[(group.Key.Length + 1)..] : name;
+                tracked.Add(new LocationItem
                 {
-                    Key = "r:" + tracked,
+                    Key = "r:" + name,
                     Label = label,
                     Oid = remote.Oid,
                     ShowCheckout = true,
                     ShowMerge = true,
                     ShowReveal = true,
-                    CheckoutCommand = new AsyncRelayCommand(() => RunAsync("Checking out…", ct => Session.SwitchTrackAsync(tracked, ct))),
-                    MergeCommand = new AsyncRelayCommand(() => MergeNamedAsync(tracked)),
+                    CheckoutCommand = new AsyncRelayCommand(() => RunAsync("Checking out…", ct => Session.SwitchTrackAsync(name, ct))),
+                    MergeCommand = new AsyncRelayCommand(() => MergeNamedAsync(name)),
                     RevealCommand = new AsyncRelayCommand(() => RevealAsync(remote.Oid)),
                 });
             }
+
+            _locationRoots.Add(Section("h:remote:" + group.Key, group.Key, GroupLocations(tracked, "r:" + group.Key), tracked.Count));
         }
 
-        Locations.Add(Header("Tags"));
+        var tags = new List<LocationItem>();
         foreach (var tag in state.Refs.Where(reference => reference.Name.StartsWith("refs/tags/", StringComparison.Ordinal))
                      .OrderBy(reference => reference.Name, StringComparer.Ordinal))
         {
             var name = tag.Name["refs/tags/".Length..];
-            Locations.Add(new LocationItem
+            tags.Add(new LocationItem
             {
                 Key = "t:" + name,
                 Label = name,
@@ -962,10 +972,12 @@ public partial class RepositoryViewModel : ViewModelBase
             });
         }
 
-        Locations.Add(Header("Remotes"));
+        _locationRoots.Add(Section("h:tags", "Tags", GroupLocations(tags, "t"), tags.Count));
+
+        var remotes = new List<LocationItem>();
         foreach (var remote in state.Remotes.OrderBy(name => name, StringComparer.Ordinal))
         {
-            Locations.Add(new LocationItem
+            remotes.Add(new LocationItem
             {
                 Key = "m:" + remote,
                 Label = remote,
@@ -976,12 +988,14 @@ public partial class RepositoryViewModel : ViewModelBase
             });
         }
 
+        _locationRoots.Add(Section("h:remotes", "Remotes", remotes, remotes.Count));
+
         if (state.Stashes.Count > 0)
         {
-            Locations.Add(Header("Stashes"));
+            var stashes = new List<LocationItem>();
             foreach (var stash in state.Stashes)
             {
-                Locations.Add(new LocationItem
+                stashes.Add(new LocationItem
                 {
                     Key = "s:" + stash.Ref,
                     Label = stash.Ref + "  " + stash.Subject,
@@ -993,12 +1007,133 @@ public partial class RepositoryViewModel : ViewModelBase
                     DropCommand = new AsyncRelayCommand(() => DropStashAsync(stash)),
                 });
             }
+
+            _locationRoots.Add(Section("h:stashes", "Stashes", stashes, stashes.Count));
         }
 
-        SelectedLocation = Locations.FirstOrDefault(item => item.Key == selected);
+        PublishLocations(selected);
     }
 
-    private static LocationItem Header(string label) => new() { IsHeader = true, Label = label, Key = "h:" + label };
+    public void ToggleLocation(LocationItem item)
+    {
+        if (item.Children.Count == 0)
+            return;
+        item.IsExpanded = !item.IsExpanded;
+        if (item.CollapseKey.Length > 0)
+        {
+            if (item.IsExpanded)
+                _collapsedLocations.Remove(item.CollapseKey);
+            else
+                _collapsedLocations.Add(item.CollapseKey);
+        }
+
+        PublishLocations(SelectedLocation?.Key);
+    }
+
+    private void PublishLocations(string? selectedKey)
+    {
+        var flat = new List<LocationItem>();
+        foreach (var root in _locationRoots)
+            AppendVisible(root, 0, flat);
+        Locations.Reset(flat);
+        SelectedLocation = selectedKey is null ? null : flat.FirstOrDefault(item => item.Key == selectedKey);
+    }
+
+    private static void AppendVisible(LocationItem item, int depth, List<LocationItem> flat)
+    {
+        item.Depth = depth;
+        flat.Add(item);
+        if (!item.IsExpanded)
+            return;
+        foreach (var child in item.Children)
+            AppendVisible(child, depth + 1, flat);
+    }
+
+    private void RememberCollapsed() => RememberCollapsed(_locationRoots);
+
+    private void RememberCollapsed(IEnumerable<LocationItem> items)
+    {
+        foreach (var item in items)
+        {
+            if (item.Children.Count > 0 && item.CollapseKey.Length > 0)
+            {
+                if (item.IsExpanded)
+                    _collapsedLocations.Remove(item.CollapseKey);
+                else
+                    _collapsedLocations.Add(item.CollapseKey);
+            }
+
+            RememberCollapsed(item.Children);
+        }
+    }
+
+    private List<LocationItem> GroupLocations(IReadOnlyList<LocationItem> leaves, string scope)
+    {
+        var byPath = new Dictionary<string, LocationItem>(StringComparer.Ordinal);
+        foreach (var leaf in leaves)
+            byPath[leaf.Label] = leaf;
+        return MapNodes(PathGrouping.Group(byPath.Keys), byPath, scope);
+    }
+
+    private List<LocationItem> MapNodes(
+        IReadOnlyList<PathGrouping.Node> nodes,
+        Dictionary<string, LocationItem> byPath,
+        string scope)
+    {
+        var list = new List<LocationItem>();
+        foreach (var node in nodes)
+        {
+            var children = MapNodes(node.Children, byPath, scope);
+            var refs = (node.RefPath is null ? 0 : 1) + children.Sum(RefCount);
+            var label = node.Children.Count == 0 ? node.Label : $"{node.Label} ({refs})";
+            if (node.RefPath is { } path && byPath.TryGetValue(path, out var leaf))
+            {
+                leaf.Label = label;
+                foreach (var child in children)
+                    leaf.Children.Add(child);
+                if (children.Count > 0)
+                    ApplyFold(leaf, scope + ":" + node.FullName);
+                list.Add(leaf);
+                continue;
+            }
+
+            var folder = new LocationItem
+            {
+                Key = "g:" + scope + ":" + node.FullName,
+                Label = label,
+            };
+            ApplyFold(folder, scope + ":" + node.FullName);
+            foreach (var child in children)
+                folder.Children.Add(child);
+            list.Add(folder);
+        }
+
+        return list;
+    }
+
+    private void ApplyFold(LocationItem item, string collapseKey)
+    {
+        item.CollapseKey = collapseKey;
+        item.IsExpanded = !_collapsedLocations.Contains(collapseKey);
+    }
+
+    private static int RefCount(LocationItem item) =>
+        (item.Key.StartsWith("g:", StringComparison.Ordinal) ? 0 : 1) + item.Children.Sum(RefCount);
+
+    private LocationItem Section(string key, string title, IReadOnlyList<LocationItem> children, int count)
+    {
+        var section = new LocationItem
+        {
+            IsHeader = true,
+            Key = key,
+            Label = $"{title} ({count})",
+            IsExpanded = !_collapsedLocations.Contains(key),
+            CollapseKey = key,
+        };
+        foreach (var child in children)
+            section.Children.Add(child);
+        return section;
+    }
 
     private async Task MergeNamedAsync(string name)
     {

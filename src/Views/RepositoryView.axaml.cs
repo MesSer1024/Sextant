@@ -253,15 +253,35 @@ public partial class RepositoryView : UserControl
         vm.NoteGraphSelection(rows);
     }
 
+    private static bool HasLocationMenu(LocationItem item) =>
+        item.ShowCheckout || item.ShowMerge || item.ShowDelete || item.ShowSetUpstream || item.ShowReveal
+        || item.ShowRename || item.ShowPop || item.ShowApply || item.ShowDrop;
+
+    private void OnLocationExpand(object? sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        if (sender is Button { DataContext: LocationItem item } && DataContext is RepositoryViewModel vm)
+            vm.ToggleLocation(item);
+    }
+
+    private void OnLocationExpandDoubleTapped(object? sender, TappedEventArgs e) => e.Handled = true;
+
     private void OnLocationDoubleTapped(object? sender, TappedEventArgs e)
     {
-        if (DataContext is RepositoryViewModel vm && vm.SelectedLocation is { } item)
+        if (DataContext is not RepositoryViewModel vm || vm.SelectedLocation is not { } item)
+            return;
+        if (item.HasChildren)
+            vm.ToggleLocation(item);
+        else
             vm.ActivateLocation(item);
     }
 
     private void OnMenuOpening(object? sender, CancelEventArgs e)
     {
-        if (sender is ContextMenu menu && menu.PlacementTarget is Control target)
-            menu.DataContext = target.DataContext;
+        if (sender is not ContextMenu menu || menu.PlacementTarget is not Control target)
+            return;
+        menu.DataContext = target.DataContext;
+        if (target.DataContext is LocationItem item && !HasLocationMenu(item))
+            e.Cancel = true;
     }
 }
