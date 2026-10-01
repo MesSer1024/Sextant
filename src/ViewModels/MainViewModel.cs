@@ -478,6 +478,7 @@ public partial class MainViewModel : ViewModelBase, IWorkspaceHost
             _palette.Add(new PaletteItem { Title = "Fetch", Run = tab.Fetch });
             _palette.Add(new PaletteItem { Title = "Pull", Run = tab.Pull });
             _palette.Add(new PaletteItem { Title = "Push", Run = tab.Push });
+            _palette.Add(new PaletteItem { Title = "Push ignoring local checks", Run = () => tab.PushIgnoringLocalChecksCommand.ExecuteAsync(null) });
             _palette.Add(new PaletteItem { Title = "Commit", Run = tab.Commit });
             _palette.Add(new PaletteItem { Title = "Commit without hooks", Run = () => tab.CommitWithoutHooksCommand.ExecuteAsync(null) });
             _palette.Add(new PaletteItem { Title = "Stage all", Run = () => tab.StageAllCommand.ExecuteAsync(null) });

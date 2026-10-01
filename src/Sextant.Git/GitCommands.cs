@@ -331,13 +331,26 @@ public static class GitCommands
         ["-C", toplevel, "fetch", "--progress"];
 
     public static IReadOnlyList<string> Pull(string toplevel) =>
-        ["-C", toplevel, "pull", "--progress", "--no-edit"];
+        ["-C", toplevel, "pull", "--rebase", "--progress", "--no-edit"];
 
-    public static IReadOnlyList<string> Push(string toplevel) =>
-        ["-C", toplevel, "push", "--progress"];
+    public static IReadOnlyList<string> Push(string toplevel, bool noVerify = false)
+    {
+        var arguments = new List<string> { "-C", toplevel, "push", "--progress" };
+        if (noVerify)
+            arguments.Add("--no-verify");
+        return arguments;
+    }
 
-    public static IReadOnlyList<string> PushUpstream(string toplevel, string remote, string branch) =>
-        ["-C", toplevel, "push", "--progress", "-u", remote, branch];
+    public static IReadOnlyList<string> PushUpstream(string toplevel, string remote, string branch, bool noVerify = false)
+    {
+        var arguments = new List<string> { "-C", toplevel, "push", "--progress" };
+        if (noVerify)
+            arguments.Add("--no-verify");
+        arguments.Add("-u");
+        arguments.Add(remote);
+        arguments.Add(branch);
+        return arguments;
+    }
 
     public static IReadOnlyList<string> Mergetool(string toplevel, string path) =>
         ["-C", toplevel, "mergetool", "--no-prompt", "--", path];

@@ -57,7 +57,14 @@
                         </MenuFlyout>
                     </SplitButton.Flyout>
                 </SplitButton>
-                <Button Content="Push" Command="{Binding PushCommand}" Margin="6,0,0,0" IsEnabled="{Binding CanRunCommands}"/>
+                <SplitButton Content="Push" Command="{Binding PushCommand}" Margin="6,0,0,0" IsEnabled="{Binding CanRunCommands}">
+                    <SplitButton.Flyout>
+                        <MenuFlyout>
+                            <MenuItem Header="Push" Command="{Binding PushCommand}"/>
+                            <MenuItem Header="Push ignoring local checks" Command="{Binding PushIgnoringLocalChecksCommand}"/>
+                        </MenuFlyout>
+                    </SplitButton.Flyout>
+                </SplitButton>
                 <Button Content="Continue" Command="{Binding ContinueSequencerCommand}" Margin="6,0,0,0" IsVisible="{Binding IsConflicted}"/>
                 <Button Content="Abort" Command="{Binding AbortMergeCommand}" Margin="6,0,0,0" IsVisible="{Binding IsConflicted}"/>
                 <Button Content="Cancel" Command="{Binding CancelCommand}" Margin="6,0,0,0" IsVisible="{Binding CanCancel}"/>

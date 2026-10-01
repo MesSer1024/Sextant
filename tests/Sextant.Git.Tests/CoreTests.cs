@@ -47,6 +47,12 @@ public class CoreTests
         Assert.Equal(["-C", "repo", "branch", "-D", "topic"], GitCommands.ForceDeleteBranch("repo", "topic"));
         Assert.Contains("--no-edit", GitCommands.Merge("repo", "topic"));
         Assert.Contains("--no-edit", GitCommands.Pull("repo"));
+        Assert.Contains("--rebase", GitCommands.Pull("repo"));
+        Assert.DoesNotContain("--no-verify", GitCommands.Push("repo"));
+        Assert.Contains("--no-verify", GitCommands.Push("repo", noVerify: true));
+        Assert.DoesNotContain("--no-verify", GitCommands.PushUpstream("repo", "origin", "topic"));
+        Assert.Contains("--no-verify", GitCommands.PushUpstream("repo", "origin", "topic", noVerify: true));
+        Assert.Equal(["-u", "origin", "topic"], GitCommands.PushUpstream("repo", "origin", "topic", noVerify: true).TakeLast(3));
         Assert.Contains("--", GitCommands.Stage("repo", "a file.txt"));
         Assert.Equal(["rm", "--cached", "-f", "--", "a.txt"], GitCommands.UnstageUnborn("repo", "a.txt").Skip(2));
         Assert.Equal(["rm", "-f", "--", "a.txt"], GitCommands.DiscardUnborn("repo", "a.txt").Skip(2));

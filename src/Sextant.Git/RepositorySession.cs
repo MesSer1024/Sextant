@@ -513,11 +513,11 @@ public sealed class RepositorySession : IAsyncDisposable
     public Task PullAsync(IProgress<string>? progress, CancellationToken cancellationToken) =>
         MutateAsync(GitCommands.Pull(_toplevel), progress, cancellationToken);
 
-    public Task PushAsync(IProgress<string>? progress, CancellationToken cancellationToken) =>
-        MutateAsync(GitCommands.Push(_toplevel), progress, cancellationToken);
+    public Task PushAsync(IProgress<string>? progress, CancellationToken cancellationToken, bool noVerify = false) =>
+        MutateAsync(GitCommands.Push(_toplevel, noVerify), progress, cancellationToken);
 
-    public Task PushUpstreamAsync(string remote, string branch, IProgress<string>? progress, CancellationToken cancellationToken) =>
-        MutateAsync(GitCommands.PushUpstream(_toplevel, remote, branch), progress, cancellationToken);
+    public Task PushUpstreamAsync(string remote, string branch, IProgress<string>? progress, CancellationToken cancellationToken, bool noVerify = false) =>
+        MutateAsync(GitCommands.PushUpstream(_toplevel, remote, branch, noVerify), progress, cancellationToken);
 
     public Task MergetoolAsync(string path, CancellationToken cancellationToken) =>
         MutateAsync(GitCommands.Mergetool(_toplevel, path), null, cancellationToken);

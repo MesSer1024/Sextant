@@ -226,7 +226,10 @@ public partial class RepositoryViewModel : ViewModelBase
     }
 
     [RelayCommand]
-    public Task Push() => PushCoreAsync();
+    public Task Push() => PushCoreAsync(noVerify: false);
+
+    [RelayCommand]
+    private Task PushIgnoringLocalChecks() => PushCoreAsync(noVerify: true);
 
     [RelayCommand]
     public Task Commit() => CommitCoreAsync(noVerify: false);
@@ -644,10 +647,11 @@ public partial class RepositoryViewModel : ViewModelBase
         return ok;
     }
 
-    private async Task PushCoreAsync()
+    private async Task PushCoreAsync(bool noVerify)
     {
         if (_session is null || IsBusy)
             return;
+        var label = noVerify ? "Pushing without local checks…" : "Pushing…";
         var state = _session.Snapshot();
         if (state.Branch.Upstream is null && !state.Branch.Detached && state.Branch.HeadName is { } branch)
         {
@@ -663,12 +667,12 @@ public partial class RepositoryViewModel : ViewModelBase
             if (remote is null)
                 return;
             var progress = Progress();
-            await RunAsync("Pushing…", ct => _session.PushUpstreamAsync(remote, branch, progress, ct));
+            await RunAsync(label, ct => _session.PushUpstreamAsync(remote, branch, progress, ct, noVerify));
             return;
         }
 
         var pushProgress = Progress();
-        await RunAsync("Pushing…", ct => _session.PushAsync(pushProgress, ct));
+        await RunAsync(label, ct => _session.PushAsync(pushProgress, ct, noVerify));
     }
 
     private IProgress<string> Progress() => new Progress<string>(text =>
