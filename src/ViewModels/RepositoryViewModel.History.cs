@@ -129,6 +129,8 @@ public partial class RepositoryViewModel
         if (_applying || _session is null)
             return;
         var commits = rows.Where(row => !row.IsWorkingCopy && row.Sha is not null).ToList();
+        _selectedShas.Clear();
+        _selectedShas.AddRange(commits.Select(row => row.Sha!));
         if (commits.Count >= 2)
         {
             var ordered = commits

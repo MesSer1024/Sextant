@@ -242,8 +242,13 @@ public partial class RepositoryViewModel : ViewModelBase
 
     private async Task CommitCoreAsync(bool noVerify)
     {
-        if (!CanCommit || _session is null)
+        if (_session is null || IsBusy || !ShowingWorkingCopy)
             return;
+        if (string.IsNullOrWhiteSpace(CommitMessage))
+        {
+            Fail("Enter a commit message. Amend, in the commit menu, can keep the current message.");
+            return;
+        }
         var message = CommitMessage;
         var label = noVerify ? "Committing without hooks…" : "Committing…";
         var ok = await RunAsync(label, ct => _session.CommitAsync(message, ct, noVerify));
@@ -407,11 +412,17 @@ public partial class RepositoryViewModel : ViewModelBase
 
     private RepositorySession Session => _session ?? throw new InvalidOperationException("Repository is not open.");
 
-    partial void OnCommitMessageChanged(string value) => OnPropertyChanged(nameof(CanCommit));
+    partial void OnCommitMessageChanged(string value)
+    {
+        OnPropertyChanged(nameof(CanCommit));
+        OnPropertyChanged(nameof(CanCommitOrAmend));
+    }
 
     partial void OnIsBusyChanged(bool value)
     {
         OnPropertyChanged(nameof(CanCommit));
+        OnPropertyChanged(nameof(CanAmend));
+        OnPropertyChanged(nameof(CanCommitOrAmend));
         OnPropertyChanged(nameof(CanRunCommands));
         OnPropertyChanged(nameof(ShowBranchStatus));
         NotifyBulkStage();
@@ -422,6 +433,8 @@ public partial class RepositoryViewModel : ViewModelBase
     partial void OnShowingWorkingCopyChanged(bool value)
     {
         OnPropertyChanged(nameof(CanCommit));
+        OnPropertyChanged(nameof(CanAmend));
+        OnPropertyChanged(nameof(CanCommitOrAmend));
         NotifyBulkStage();
     }
 
@@ -745,6 +758,8 @@ public partial class RepositoryViewModel : ViewModelBase
         _rangeOlder = null;
         _rangeNewer = null;
         var wantWork = SelectedGraphRow is null || SelectedGraphRow.IsWorkingCopy;
+        if (state.Sequencer != SequencerKind.None && !_wasMerge)
+            wantWork = true;
         var wantSha = SelectedGraphRow?.Sha;
         var wantPath = SelectedFile is { IsHeader: false } file ? file.Path : null;
         var wantStaged = SelectedFile?.FromStagedList ?? false;
@@ -760,8 +775,13 @@ public partial class RepositoryViewModel : ViewModelBase
             AheadBehindText = ShowAheadBehind ? $"↑{state.Branch.Ahead}  ↓{state.Branch.Behind}" : "";
             IsDirty = state.Entries.Count > 0;
             IsConflicted = state.Sequencer != SequencerKind.None;
+            var unmerged = state.Entries.Any(entry => entry.Kind == ChangeKind.Unmerged);
+            _amendAllowed = !state.Branch.Unborn
+                && (state.Sequencer == SequencerKind.None || (state.Sequencer == SequencerKind.Rebase && !unmerged));
             ConflictText = state.Sequencer switch
             {
+                SequencerKind.Rebase when !unmerged && RebaseStoppedToEdit(_session?.GitDirectory) =>
+                    "Rebase stopped to edit this commit. Change the files, stage them, and continue to keep the new contents. Amend first if you also want a new message. Abort returns to where the rebase started.",
                 SequencerKind.Rebase => "Rebase in progress. Resolve each file in the editor, save and stage, then continue, or abort the rebase.",
                 SequencerKind.CherryPick => "Cherry-pick in progress. Resolve each file in the editor, save and stage, then continue, or abort the cherry-pick.",
                 SequencerKind.Revert => "Revert in progress. Resolve each file in the editor, save and stage, then continue, or abort the revert.",
@@ -824,6 +844,8 @@ public partial class RepositoryViewModel : ViewModelBase
         }
 
         OnPropertyChanged(nameof(CanCommit));
+        OnPropertyChanged(nameof(CanAmend));
+        OnPropertyChanged(nameof(CanCommitOrAmend));
     }
 
     private void RememberSelection(bool wantWork, string? wantSha, string? wantPath, bool wantStaged)
@@ -902,6 +924,8 @@ public partial class RepositoryViewModel : ViewModelBase
             ResetHardCommand = new AsyncRelayCommand(() => ResetAsync(commit.Commit, "--hard")),
             CherryPickCommand = new AsyncRelayCommand(() => CherryPickAsync(commit.Commit)),
             RevertCommand = new AsyncRelayCommand(() => RevertAsync(commit.Commit)),
+            RebaseCommand = new AsyncRelayCommand(() => RebaseFromRowAsync(commit.Commit.Sha, reword: false)),
+            RewordCommand = new AsyncRelayCommand(() => RebaseFromRowAsync(commit.Commit.Sha, reword: true)),
             TagCommand = new AsyncRelayCommand(() => TagAsync(commit.Commit)),
         };
     }

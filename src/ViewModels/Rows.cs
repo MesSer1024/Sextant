@@ -69,6 +69,10 @@ public partial class GraphRowViewModel : ObservableObject
 
     public ICommand RevertCommand { get; init; } = UiCommands.Disabled;
 
+    public ICommand RebaseCommand { get; init; } = UiCommands.Disabled;
+
+    public ICommand RewordCommand { get; init; } = UiCommands.Disabled;
+
     public ICommand TagCommand { get; init; } = UiCommands.Disabled;
 }
 

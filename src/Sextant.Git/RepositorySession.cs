@@ -321,7 +321,7 @@ public sealed class RepositorySession : IAsyncDisposable
     public Task RevertAsync(string sha, CancellationToken cancellationToken) =>
         MutateAsync(GitCommands.Revert(_toplevel, sha), null, cancellationToken);
 
-    public Task AbortSequencerAsync(CancellationToken cancellationToken)
+    public async Task AbortSequencerAsync(CancellationToken cancellationToken)
     {
         SequencerKind kind;
         lock (_stateLock)
@@ -333,7 +333,14 @@ public sealed class RepositorySession : IAsyncDisposable
             SequencerKind.Revert => GitCommands.AbortRevert(_toplevel),
             _ => GitCommands.AbortMerge(_toplevel),
         };
-        return MutateAsync(command, null, cancellationToken);
+        try
+        {
+            await MutateAsync(command, null, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            CleanupRebaseEditorIfIdle();
+        }
     }
 
     public async Task ContinueSequencerAsync(CancellationToken cancellationToken)
@@ -358,8 +365,96 @@ public sealed class RepositorySession : IAsyncDisposable
             ["GIT_EDITOR"] = "true",
             ["GIT_SEQUENCE_EDITOR"] = "true",
         };
-        await MutateAsync(command, null, cancellationToken, environment: environment).ConfigureAwait(false);
+        try
+        {
+            await MutateAsync(command, null, cancellationToken, environment: environment).ConfigureAwait(false);
+        }
+        finally
+        {
+            CleanupRebaseEditorIfIdle();
+        }
     }
+
+    public Task RebaseInteractiveAsync(string? upstream, IReadOnlyList<RebaseStep> steps, CancellationToken cancellationToken) =>
+        RunAsync(async ct =>
+        {
+            var problem = RebasePlan.Validate(steps);
+            if (problem is not null)
+                throw new RepositoryActionException(problem);
+
+            GitCommandFailedException? failure = null;
+            try
+            {
+                await _scheduler.WriteAsync(async token =>
+                {
+                    var editor = RebaseEditor.Create(_gitDirectory, steps);
+                    var environment = new Dictionary<string, string>
+                    {
+                        ["GIT_SEQUENCE_EDITOR"] = editor,
+                        ["GIT_EDITOR"] = "true",
+                    };
+                    Checked(await ExecuteAsync(GitCommands.RebaseInteractive(_toplevel, upstream), null, token, environment).ConfigureAwait(false));
+                    return 0;
+                }, ct).ConfigureAwait(false);
+            }
+            catch (GitCommandFailedException exception)
+            {
+                failure = exception;
+            }
+
+            try
+            {
+                await LoadRefsAndMaybeHistoryAsync(ct, statusAlreadyApplied: false).ConfigureAwait(false);
+            }
+            catch (GitCommandFailedException) when (failure is not null)
+            {
+            }
+
+            CleanupRebaseEditorIfIdle();
+            if (failure is not null)
+                throw failure;
+        }, cancellationToken);
+
+    public Task AmendAsync(string? message, CancellationToken cancellationToken) =>
+        RunAsync(async ct =>
+        {
+            await _scheduler.WriteAsync(async token =>
+            {
+                string? file = null;
+                try
+                {
+                    if (!string.IsNullOrWhiteSpace(message))
+                    {
+                        file = Path.Combine(Path.GetTempPath(), "sextant-msg-" + Guid.NewGuid().ToString("N"));
+                        var text = message.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
+                        if (!text.EndsWith('\n'))
+                            text += "\n";
+                        await File.WriteAllTextAsync(file, text, new UTF8Encoding(false), token).ConfigureAwait(false);
+                    }
+
+                    Checked(await ExecuteAsync(GitCommands.Amend(_toplevel, file), null, token).ConfigureAwait(false));
+                    return 0;
+                }
+                finally
+                {
+                    if (file is not null)
+                        TryDelete(file);
+                }
+            }, ct).ConfigureAwait(false);
+            await LoadRefsAndMaybeHistoryAsync(ct, statusAlreadyApplied: false).ConfigureAwait(false);
+        }, cancellationToken);
+
+    public Task<IReadOnlyList<(string Sha, string Subject)>> ListUpstreamOnlyAsync(CancellationToken cancellationToken) =>
+        RunAsync(async ct =>
+        {
+            var output = await _scheduler.ReadAsync(
+                inner => ExecuteAsync(GitCommands.UpstreamOnly(_toplevel), null, inner),
+                ct).ConfigureAwait(false);
+            Track(output);
+            if (output.ExitCode != 0)
+                throw new GitCommandFailedException(output);
+            return RebasePlan.ParseSubjects(_encoding.GetString(output.Stdout));
+        }, cancellationToken);
 
     public Task CreateTagAsync(string name, string sha, CancellationToken cancellationToken) =>
         MutateAsync(GitCommands.CreateTag(_toplevel, name, sha), null, cancellationToken);
@@ -515,6 +610,9 @@ public sealed class RepositorySession : IAsyncDisposable
 
     public Task PushAsync(IProgress<string>? progress, CancellationToken cancellationToken, bool noVerify = false) =>
         MutateAsync(GitCommands.Push(_toplevel, noVerify), progress, cancellationToken);
+
+    public Task PushForceWithLeaseAsync(IProgress<string>? progress, CancellationToken cancellationToken) =>
+        MutateAsync(GitCommands.PushForceWithLease(_toplevel), progress, cancellationToken);
 
     public Task PushUpstreamAsync(string remote, string branch, IProgress<string>? progress, CancellationToken cancellationToken, bool noVerify = false) =>
         MutateAsync(GitCommands.PushUpstream(_toplevel, remote, branch, noVerify), progress, cancellationToken);
@@ -1090,6 +1188,15 @@ public sealed class RepositorySession : IAsyncDisposable
         foreach (var reference in refs.OrderBy(reference => reference.Name, StringComparer.Ordinal))
             builder.Append('|').Append(reference.Name).Append('=').Append(reference.Oid);
         return builder.ToString();
+    }
+
+    private void CleanupRebaseEditorIfIdle()
+    {
+        SequencerKind kind;
+        lock (_stateLock)
+            kind = _sequencer;
+        if (kind == SequencerKind.None && _gitDirectory.Length > 0)
+            RebaseEditor.Cleanup(_gitDirectory);
     }
 
     private static void TryDelete(string path)

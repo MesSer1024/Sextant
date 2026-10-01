@@ -153,6 +153,33 @@ public static class GitCommands
     public static IReadOnlyList<string> ContinueRebase(string toplevel) =>
         ["-C", toplevel, "rebase", "--continue"];
 
+    public static IReadOnlyList<string> RebaseInteractive(string toplevel, string? upstream)
+    {
+        var arguments = new List<string> { "-C", toplevel, "rebase", "-i" };
+        if (upstream is null)
+            arguments.Add("--root");
+        else
+            arguments.Add(upstream);
+        return arguments;
+    }
+
+    public static IReadOnlyList<string> Amend(string toplevel, string? messageFile)
+    {
+        var arguments = new List<string> { "-C", toplevel, "commit", "--amend" };
+        if (string.IsNullOrEmpty(messageFile))
+        {
+            arguments.Add("-C");
+            arguments.Add("HEAD");
+        }
+        else
+        {
+            arguments.Add("-F");
+            arguments.Add(messageFile);
+        }
+
+        return arguments;
+    }
+
     public static IReadOnlyList<string> CreateTag(string toplevel, string name, string sha) =>
         ["-C", toplevel, "tag", name, sha];
 
@@ -340,6 +367,12 @@ public static class GitCommands
             arguments.Add("--no-verify");
         return arguments;
     }
+
+    public static IReadOnlyList<string> PushForceWithLease(string toplevel) =>
+        ["-C", toplevel, "push", "--force-with-lease", "--progress"];
+
+    public static IReadOnlyList<string> UpstreamOnly(string toplevel) =>
+        ["-C", toplevel, "--no-optional-locks", "log", "-z", "-n", "13", "--format=%H%x1f%s", "HEAD..@{upstream}"];
 
     public static IReadOnlyList<string> PushUpstream(string toplevel, string remote, string branch, bool noVerify = false)
     {

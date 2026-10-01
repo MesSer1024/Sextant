@@ -62,6 +62,7 @@
                         <MenuFlyout>
                             <MenuItem Header="Push" Command="{Binding PushCommand}"/>
                             <MenuItem Header="Push ignoring local checks" Command="{Binding PushIgnoringLocalChecksCommand}"/>
+                            <MenuItem Header="Push with force-with-lease" Command="{Binding PushForceWithLeaseCommand}"/>
                         </MenuFlyout>
                     </SplitButton.Flyout>
                 </SplitButton>
@@ -183,6 +184,8 @@
                                         <MenuItem Header="Reset hard" Command="{Binding ResetHardCommand}" IsVisible="{Binding ShowRewrite}"/>
                                         <MenuItem Header="Cherry-pick" Command="{Binding CherryPickCommand}" IsVisible="{Binding ShowRewrite}"/>
                                         <MenuItem Header="Revert" Command="{Binding RevertCommand}" IsVisible="{Binding ShowRewrite}"/>
+                                        <MenuItem Header="Rebase interactive…" Command="{Binding RebaseCommand}" IsVisible="{Binding ShowRewrite}"/>
+                                        <MenuItem Header="Reword…" Command="{Binding RewordCommand}" IsVisible="{Binding ShowRewrite}"/>
                                         <MenuItem Header="Tag" Command="{Binding TagCommand}" IsVisible="{Binding ShowRewrite}"/>
                                     </ContextMenu>
                                 </Grid.ContextMenu>
@@ -213,10 +216,11 @@
                         <DockPanel>
                             <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,6,0,0">
                                 <TextBlock Text="Nothing staged." IsVisible="{Binding NothingStaged}" VerticalAlignment="Center" Opacity="0.7"/>
-                                <SplitButton Content="Commit" Command="{Binding CommitCommand}" IsEnabled="{Binding CanCommit}">
+                                <SplitButton Content="Commit" Command="{Binding CommitCommand}" IsEnabled="{Binding CanCommitOrAmend}">
                                     <SplitButton.Flyout>
                                         <MenuFlyout>
                                             <MenuItem Header="Commit without hooks" Command="{Binding CommitWithoutHooksCommand}" IsEnabled="{Binding CanCommit}"/>
+                                            <MenuItem Header="Amend" Command="{Binding AmendCommand}" IsEnabled="{Binding CanAmend}"/>
                                         </MenuFlyout>
                                     </SplitButton.Flyout>
                                 </SplitButton>

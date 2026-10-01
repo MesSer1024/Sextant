@@ -88,9 +88,9 @@ Checked items are in the app. The rest are still ahead. [PLAN.md](PLAN.md) is th
 - [x] Save and stage when the conflict markers are gone. Markers that remain stay on disk and the path stays unmerged.
 - [x] A binary conflict stays on the external merge tool.
 - [x] Continue and abort for a merge, rebase, cherry-pick, and revert.
-- [ ] Interactive rebase of the selected commits: reorder, squash, fixup, edit, drop, and reword, without opening an editor.
-- [ ] Edit a commit message, amend the tip, and change an older commit through that rebase.
-- [ ] Push with `--force-with-lease` as its own labeled action. A plain `--force` is not that button. A confirmation calls out commits that are already on a remote.
+- [x] Interactive rebase of the selected commits: reorder, squash, fixup, edit, drop, and reword, without opening an editor.
+- [x] Edit a commit message, amend the tip, and change an older commit through that rebase.
+- [x] Push with `--force-with-lease` as its own labeled action. A plain `--force` is not that button. A confirmation calls out commits that are already on a remote.
 
 ### Scale and depth
 

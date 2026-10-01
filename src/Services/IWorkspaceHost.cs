@@ -19,6 +19,8 @@ public interface IDialogService
 
     Task<PerformanceChoice?> ConfirmPerformanceAsync(PerformanceSuggestion suggestion);
 
+    Task<IReadOnlyList<RebaseStep>?> EditRebaseAsync(IReadOnlyList<RebaseStep> steps);
+
     Task CopyAsync(string text);
 }
 
