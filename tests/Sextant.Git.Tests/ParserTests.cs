@@ -184,6 +184,26 @@ public class NameStatusAndDiffTests
         Assert.Equal(1, document.Hunks[0].OldStart);
         Assert.Contains(document.Hunks[0].Lines, line => line.Kind == DiffLineKind.Added && line.Text == "TWO");
         Assert.True(DiffParser.Parse("diff --git a/a.bin b/a.bin\nBinary files a/a.bin and b/a.bin differ\n").IsBinary);
+        Assert.True(DiffParser.Parse("diff --git a/a.bin b/a.bin\nGIT binary patch\nliteral 4\n").IsBinary);
+    }
+
+    [Fact]
+    public void Text_that_mentions_a_binary_notice_stays_text()
+    {
+        var patch = """
+            diff --git a/notes.md b/notes.md
+            --- a/notes.md
+            +++ b/notes.md
+            @@ -1,1 +1,3 @@
+             notes
+            +A binary notice is the line `Binary files a and b differ` or `GIT binary patch`.
+            +code.Contains("Binary files ");
+            """;
+        var document = DiffParser.Parse(patch.Replace("\r\n", "\n", StringComparison.Ordinal));
+        Assert.False(document.IsBinary);
+        var hunk = Assert.Single(document.Hunks);
+        Assert.Contains(hunk.Lines, line => line.Kind == DiffLineKind.Added && line.Text.Contains("GIT binary patch", StringComparison.Ordinal));
+        Assert.Contains(hunk.Lines, line => line.Kind == DiffLineKind.Added && line.Text.Contains("Binary files ", StringComparison.Ordinal));
     }
 
     [Fact]

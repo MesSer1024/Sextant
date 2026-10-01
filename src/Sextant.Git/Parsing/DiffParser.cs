@@ -8,10 +8,6 @@ public static partial class DiffParser
     public static DiffDocument Parse(string text)
     {
         var normalized = text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
-        if (normalized.Contains("GIT binary patch", StringComparison.Ordinal)
-            || normalized.Contains("Binary files ", StringComparison.Ordinal))
-            return new DiffDocument(true, false, false, false, false, [], normalized);
-
         var isNew = ContainsLine(normalized, "new file mode ");
         var isDeleted = ContainsLine(normalized, "deleted file mode ");
         var isRename = ContainsLine(normalized, "rename from ");
@@ -19,6 +15,11 @@ public static partial class DiffParser
         DiffHunkBuilder? current = null;
         foreach (var line in normalized.Split('\n'))
         {
+            // Git prints these as their own lines. The same words inside a
+            // markdown or source line are file content, prefixed with +, -, or a space.
+            if (IsBinaryNotice(line))
+                return new DiffDocument(true, false, false, false, false, [], normalized);
+
             if (line.StartsWith("@@", StringComparison.Ordinal))
             {
                 if (current is not null)
@@ -106,6 +107,11 @@ public static partial class DiffParser
 
     private static bool ContainsLine(string text, string prefix) =>
         text.StartsWith(prefix, StringComparison.Ordinal) || text.Contains("\n" + prefix, StringComparison.Ordinal);
+
+    private static bool IsBinaryNotice(string line) =>
+        line.Equals("GIT binary patch", StringComparison.Ordinal)
+        || (line.StartsWith("Binary files ", StringComparison.Ordinal)
+            && line.EndsWith(" differ", StringComparison.Ordinal));
 
     private sealed class DiffHunkBuilder
     {
