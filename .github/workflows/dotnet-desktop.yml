@@ -1,0 +1,99 @@
+# GitHub's ".NET Desktop" starter workflow:
+# Build, test, sign and publish a desktop application built on .NET.
+# https://github.com/actions/starter-workflows/blob/main/ci/dotnet-desktop.yml
+#
+# Sextant is an unpackaged Avalonia app, so this file keeps that workflow's
+# shape and replaces the Windows Application Packaging (MSIX) project with
+# `dotnet publish` for win-x64. There is no .wapproj.
+#
+# Signing uses the same secrets as the starter workflow. Add them under
+# Settings, Secrets and variables, Actions:
+#
+# 1. Base64_Encoded_Pfx
+#    $pfx = Get-Content '.\SigningCertificate.pfx' -AsByteStream
+#    [Convert]::ToBase64String($pfx) | Set-Content 'SigningCertificate_Encoded.txt'
+#    Put the contents of that file in the secret. PowerShell 5 uses
+#    -Encoding Byte instead of -AsByteStream.
+# 2. Pfx_Key — the certificate password.
+#
+# When those secrets are empty, the build still tests and publishes, and
+# skips Authenticode signing.
+#
+# https://github.com/microsoft/github-actions-for-desktop-apps#signing
+
+name: .NET Desktop
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    env:
+      Solution_Name: Sextant.slnx
+      Project_Path: src/Sextant.csproj
+      Publish_Directory: artifacts/win-x64
+      Runtime: win-x64
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Install .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 10.0.x
+
+    - name: Execute unit tests
+      run: dotnet test $env:Solution_Name --configuration Release --verbosity normal
+
+    - name: Publish the application
+      run: dotnet publish $env:Project_Path --configuration Release --runtime $env:Runtime --self-contained true --output $env:Publish_Directory
+
+    - name: Sign the application
+      shell: pwsh
+      env:
+        PFX_BASE64: ${{ secrets.Base64_Encoded_Pfx }}
+        PFX_PASSWORD: ${{ secrets.Pfx_Key }}
+      run: |
+        if ([string]::IsNullOrWhiteSpace($env:PFX_BASE64)) {
+          Write-Host "Base64_Encoded_Pfx is not set. The published app is unsigned."
+          exit 0
+        }
+        $pfx = Join-Path $env:RUNNER_TEMP "GitHubActionsWorkflow.pfx"
+        try {
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:PFX_BASE64))
+          $signtool = Get-ChildItem -Path "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Recurse -Filter signtool.exe |
+            Where-Object { $_.FullName -match '\\x64\\signtool.exe$' } |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+          if (-not $signtool) {
+            throw "signtool.exe was not found in the Windows SDK."
+          }
+          $files = @(
+            (Join-Path $env:Publish_Directory "Sextant.exe"),
+            (Join-Path $env:Publish_Directory "Sextant.Git.dll")
+          )
+          foreach ($file in $files) {
+            & $signtool.FullName sign /fd SHA256 /f $pfx /p $env:PFX_PASSWORD /tr http://timestamp.digicert.com /td SHA256 $file
+            if ($LASTEXITCODE -ne 0) {
+              throw "signtool exited $LASTEXITCODE for $file"
+            }
+          }
+        } finally {
+          if (Test-Path $pfx) {
+            Remove-Item $pfx -Force
+          }
+        }
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: Sextant-win-x64
+        path: artifacts/win-x64
+        if-no-files-found: error
