@@ -12,7 +12,9 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="BitMiracle.LibTiff.NET" Version="2.4.660" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.10.1" />
+    <PackageReference Include="Svg.Skia" Version="4.9.1" />
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="4.0.0">
       <PrivateAssets>all</PrivateAssets>
@@ -24,5 +26,6 @@
     <ProjectReference Include="..\..\src\Sextant.Git\Sextant.Git.csproj" />
     <Compile Include="..\..\src\LineCopy.cs" Link="LineCopy.cs" />
     <Compile Include="..\..\src\DiffSyntax.cs" Link="DiffSyntax.cs" />
+    <Compile Include="..\..\src\ImageRaster.cs" Link="ImageRaster.cs" />
   </ItemGroup>
 </Project>

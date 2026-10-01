@@ -13,7 +13,8 @@ public static class ImageFiles
     {
         if (string.IsNullOrEmpty(path))
             return false;
-        return Path.GetExtension(path).ToLowerInvariant() is ".png" or ".jpg" or ".jpeg" or ".gif" or ".bmp" or ".webp" or ".ico";
+        return Path.GetExtension(path).ToLowerInvariant() is
+            ".png" or ".jpg" or ".jpeg" or ".gif" or ".bmp" or ".webp" or ".ico" or ".svg" or ".tif" or ".tiff";
     }
 
     public static string FormatBytes(long size)

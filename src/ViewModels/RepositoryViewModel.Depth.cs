@@ -2,6 +2,7 @@ using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Sextant;
 using Sextant.Git;
 using Sextant.Git.Parsing;
 using System.Text;
@@ -336,11 +337,16 @@ public partial class RepositoryViewModel
                 var preview = await previewTask.ConfigureAwait(false);
                 if (token.IsCancellationRequested || load != _imageLoad)
                     return;
+                // SVG and TIFF are drawn here, off the UI thread, so the row spinner can keep turning.
+                var beforePrepared = preview is null ? null : ImageRaster.Prepare(target.Path, preview.Before);
+                var afterPrepared = preview is null ? null : ImageRaster.Prepare(target.Path, preview.After);
+                if (token.IsCancellationRequested || load != _imageLoad)
+                    return;
                 await OnUi(() =>
                 {
                     if (load != _imageLoad)
                         return;
-                    FillImageRow(row, preview, published, visible);
+                    FillImageRow(row, preview, beforePrepared, afterPrepared, published, visible);
                 });
             }
 
@@ -368,7 +374,13 @@ public partial class RepositoryViewModel
         return true;
     }
 
-    private void FillImageRow(ImageCompareRow row, ImagePreview? preview, bool published, List<ImageCompareRow> visible)
+    private void FillImageRow(
+        ImageCompareRow row,
+        ImagePreview? preview,
+        byte[]? beforePrepared,
+        byte[]? afterPrepared,
+        bool published,
+        List<ImageCompareRow> visible)
     {
         if (preview is null)
         {
@@ -379,8 +391,8 @@ public partial class RepositoryViewModel
             return;
         }
 
-        var before = DecodeImage(preview.Before);
-        var after = DecodeImage(preview.After);
+        var before = DecodeBitmap(beforePrepared);
+        var after = DecodeBitmap(afterPrepared);
         row.Before = before;
         row.After = after;
         row.BeforeNotice = SideNotice(preview.Before, before, preview.BeforeNotice);
@@ -515,7 +527,7 @@ public partial class RepositoryViewModel
 
         if (ImageFiles.IsImagePath(path))
         {
-            var bitmap = DecodeImage(loaded.Bytes);
+            var bitmap = DecodeImage(path, loaded.Bytes);
             if (bitmap is null)
             {
                 PlaceImageNotice(path, "The file was loaded, but it could not be decoded as an image.");
@@ -631,13 +643,15 @@ public partial class RepositoryViewModel
             row.BeforeNotice = notice;
     }
 
-    private static Bitmap? DecodeImage(byte[]? data)
+    private static Bitmap? DecodeImage(string path, byte[]? data) => DecodeBitmap(ImageRaster.Prepare(path, data));
+
+    private static Bitmap? DecodeBitmap(byte[]? data)
     {
         if (data is null || data.Length == 0)
             return null;
         try
         {
-            using var stream = new MemoryStream(data);
+            using var stream = new MemoryStream(data, writable: false);
             return new Bitmap(stream);
         }
         catch (Exception)

@@ -349,6 +349,33 @@ public class Phase4Tests
     }
 
     [Fact]
+    public async Task Image_preview_loads_svg_and_tiff()
+    {
+        using var repo = new TempRepo();
+        repo.Run("config", "core.autocrlf", "false");
+        const string svg = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"8\" height=\"8\"><rect width=\"8\" height=\"8\" fill=\"#00ff00\"/></svg>\n";
+        repo.WriteFile("mark.svg", svg);
+        var tiff = new byte[] { 0x49, 0x49, 0x2A, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00 };
+        File.WriteAllBytes(Path.Combine(repo.Directory, "scan.tiff"), tiff);
+        repo.CommitAll("pictures");
+        var head = repo.RunCapture("rev-parse", "HEAD").Trim();
+
+        await using var session = await Open(repo);
+        var svgPreview = await session.PreviewImageAsync(
+            new ImageRequest("mark.svg", null, head, false, false),
+            CancellationToken.None);
+        Assert.NotNull(svgPreview);
+        Assert.Null(svgPreview.Before);
+        Assert.Contains("fill=\"#00ff00\"", Encoding.UTF8.GetString(svgPreview.After!), StringComparison.Ordinal);
+
+        var tiffPreview = await session.PreviewImageAsync(
+            new ImageRequest("scan.tiff", null, head, false, false),
+            CancellationToken.None);
+        Assert.NotNull(tiffPreview);
+        Assert.Equal(tiff, tiffPreview.After);
+    }
+
+    [Fact]
     public async Task Image_pointer_preview_loads_both_versions_and_leaves_the_worktree()
     {
         var scriptDir = Path.Combine(Path.GetTempPath(), "sextant-script-" + Guid.NewGuid().ToString("N"));
