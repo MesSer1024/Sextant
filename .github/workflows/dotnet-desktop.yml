@@ -6,10 +6,14 @@
 # shape and replaces the Windows Application Packaging (MSIX) project with
 # `dotnet publish` for win-x64. There is no .wapproj. The macOS job publishes
 # a self-contained osx-arm64 app. On a Mac that publish is a Sextant.app
-# bundle. That bundle is tarred so the app host stays executable, then
-# uploaded with actions/upload-artifact@v7 and archive: false. The artifact
-# name is the filename, Sextant-osx-arm64.tar. The Windows job still uploads
-# a directory, which archive: false does not allow, so it stays on v4.
+# bundle. stamp-mac-app.sh ad-hoc signs that bundle. The SDK's loose apphost
+# signature does not seal bundle resources, and Gatekeeper reports a
+# quarantined copy as damaged. The signed bundle is tarred so the app host
+# stays executable, then uploaded with actions/upload-artifact@v7 and
+# archive: false. The artifact name is the filename, Sextant-osx-arm64.tar.
+# The app is not notarized, so a browser download still carries the
+# quarantine attribute. The Windows job still uploads a directory, which
+# archive: false does not allow, so it stays on v4.
 #
 # Signing uses the same secrets as the starter workflow. Add them under
 # Settings, Secrets and variables, Actions:
@@ -136,6 +140,7 @@ jobs:
         test -f "$app/Contents/Resources/sextant.icns"
         test -x "$app/Contents/MacOS/Sextant"
         plutil -lint "$app/Contents/Info.plist"
+        codesign --verify --strict "$app"
         tar -C "$Publish_Directory" -cf artifacts/Sextant-osx-arm64.tar Sextant.app
         mode="$(tar -tvf artifacts/Sextant-osx-arm64.tar | awk '/Contents\/MacOS\/Sextant$/ { print $1; exit }')"
         case "$mode" in
