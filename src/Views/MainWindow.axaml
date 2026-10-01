@@ -38,7 +38,7 @@
                         <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="vm:RepositoryViewModel">
                                 <Panel Margin="0,4,4,0">
-                                    <Border Background="{DynamicResource MaterialDesignSelection}" IsVisible="{Binding IsActive}" CornerRadius="4"/>
+                                    <Border Background="{DynamicResource SystemControlHighlightListAccentLowBrush}" IsVisible="{Binding IsActive}" CornerRadius="4"/>
                                     <Border Padding="8,4">
                                         <StackPanel Orientation="Horizontal" Spacing="6">
                                             <Ellipse Width="6" Height="6" Fill="#D04040" IsVisible="{Binding IsConflicted}" VerticalAlignment="Center"/>
@@ -74,8 +74,8 @@
             <Border Width="520" MaxHeight="420" Margin="0,72,0,0"
                     HorizontalAlignment="Center" VerticalAlignment="Top"
                     Padding="8" CornerRadius="6"
-                    Background="{DynamicResource MaterialDesignCardBackground}"
-                    BorderBrush="{DynamicResource MaterialDesignDivider}"
+                    Background="{DynamicResource FlyoutPresenterBackground}"
+                    BorderBrush="{DynamicResource FlyoutBorderThemeBrush}"
                     BorderThickness="1"
                     PointerPressed="OnPaletteCardPressed">
                 <DockPanel>

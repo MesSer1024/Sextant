@@ -82,7 +82,7 @@
                                         IsVisible="{Binding HasChildren}"
                                         Click="OnLocationExpand" DoubleTapped="OnLocationExpandDoubleTapped"
                                         Background="Transparent" VerticalAlignment="Center">
-                                    <Path Data="M2,1 L7,6 L2,11" Stroke="{DynamicResource MaterialBodyBrush}" StrokeThickness="1.4"
+                                    <Path Data="M2,1 L7,6 L2,11" Stroke="{DynamicResource SystemControlForegroundBaseHighBrush}" StrokeThickness="1.4"
                                           StrokeLineCap="Round" StrokeJoin="Round" Stretch="None"
                                           RenderTransformOrigin="50%,50%">
                                         <Path.RenderTransform>
