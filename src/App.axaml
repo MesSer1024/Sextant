@@ -2,6 +2,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="Sextant.App"
              xmlns:local="using:Sextant"
+             xmlns:views="using:Sextant.Views"
              Name="Sextant"
              RequestedThemeVariant="Default">
              <!-- "Default" ThemeVariant follows system theme variant. "Dark" or "Light" are other available options. -->
@@ -61,9 +62,20 @@
             <Setter Property="Padding" Value="6,2"/>
             <Setter Property="MinHeight" Value="0"/>
         </Style>
-        <Style Selector="TextBlock.diff">
+        <Style Selector=":is(TextBlock).diff">
             <Setter Property="FontFamily" Value="Cascadia Mono, Consolas, DejaVu Sans Mono"/>
             <Setter Property="FontSize" Value="12"/>
+        </Style>
+        <Style Selector=":is(views|CopyableText)">
+            <Setter Property="SelectionBrush" Value="{DynamicResource TextControlSelectionHighlightColor}"/>
+            <Setter Property="Cursor" Value="Ibeam"/>
+            <Setter Property="FocusAdorner" Value="{x:Null}"/>
+        </Style>
+        <Style Selector=":is(views|CopyListBox) ListBoxItem">
+            <Setter Property="Padding" Value="0"/>
+        </Style>
+        <Style Selector=":is(views|CopyListBox) ListBoxItem:selected /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="Transparent"/>
         </Style>
         <Style Selector="TextBox.diff">
             <Setter Property="FontFamily" Value="Cascadia Mono, Consolas, DejaVu Sans Mono"/>

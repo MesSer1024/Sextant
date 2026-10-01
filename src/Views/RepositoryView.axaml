@@ -1,6 +1,7 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:Sextant.ViewModels"
+             xmlns:views="using:Sextant.Views"
              xmlns:controls="using:Sextant.Controls"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
@@ -294,79 +295,77 @@
                         <TextBlock Grid.Column="4" Text="Theirs" FontWeight="SemiBold" Opacity="0.75"/>
                     </Grid>
                     <Grid>
-                        <ListBox ItemsSource="{Binding DiffRows}" Background="Transparent" IsVisible="{Binding ShowingDiff}">
-                            <ListBox.ItemsPanel>
+                        <views:CopyListBox ItemsSource="{Binding DiffRows}" Background="Transparent" IsVisible="{Binding ShowingDiff}">
+                            <views:CopyListBox.ItemsPanel>
                                 <ItemsPanelTemplate>
                                     <VirtualizingStackPanel/>
                                 </ItemsPanelTemplate>
-                            </ListBox.ItemsPanel>
-                            <ListBox.DataTemplates>
+                            </views:CopyListBox.ItemsPanel>
+                            <views:CopyListBox.DataTemplates>
                                 <DataTemplate DataType="vm:DiffHunkRow" x:DataType="vm:DiffHunkRow">
                                     <DockPanel Margin="8,6,8,2">
                                         <Button Classes="flat" DockPanel.Dock="Right" Content="{Binding ActionLabel}" Command="{Binding ActionCommand}" IsVisible="{Binding ShowAction}" Padding="6,0"/>
-                                        <TextBlock Classes="diff" Text="{Binding Header}" Opacity="0.7"/>
+                                        <views:CopyableText Classes="diff" CopyKey="span" Text="{Binding Header}" Opacity="0.7"/>
                                     </DockPanel>
                                 </DataTemplate>
                                 <DataTemplate DataType="vm:DiffLineRow" x:DataType="vm:DiffLineRow">
                                     <DockPanel>
                                         <Button Classes="flat" DockPanel.Dock="Right" Content="{Binding ActionLabel}" Command="{Binding ActionCommand}" IsVisible="{Binding ShowAction}" Padding="6,0"/>
-                                        <TextBlock Classes="diff" Text="{Binding Text}" Background="{Binding Background}" Padding="8,0"/>
+                                        <views:CopyableText Classes="diff" CopyKey="body" Text="{Binding Text}" Background="{Binding Background}" Padding="8,0"/>
                                     </DockPanel>
                                 </DataTemplate>
                                 <DataTemplate DataType="vm:DiffSideRow" x:DataType="vm:DiffSideRow">
                                     <Grid ColumnDefinitions="*,*">
-                                        <TextBlock Classes="diff" Text="{Binding Left}" Background="{Binding LeftBackground}" Padding="8,0"/>
-                                        <TextBlock Grid.Column="1" Classes="diff" Text="{Binding Right}" Background="{Binding RightBackground}" Padding="8,0"/>
+                                        <views:CopyableText Classes="diff" CopyKey="left" Text="{Binding Left}" Background="{Binding LeftBackground}" Padding="8,0"/>
+                                        <views:CopyableText Grid.Column="1" Classes="diff" CopyKey="right" Text="{Binding Right}" Background="{Binding RightBackground}" Padding="8,0"/>
                                     </Grid>
                                 </DataTemplate>
                                 <DataTemplate DataType="vm:DiffFileRow" x:DataType="vm:DiffFileRow">
-                                    <TextBlock Text="{Binding Label}" FontWeight="SemiBold" Margin="8,8,8,2" TextTrimming="CharacterEllipsis"/>
+                                    <views:CopyableText CopyKey="span" Text="{Binding Label}" FontWeight="SemiBold" Margin="8,8,8,2" TextTrimming="CharacterEllipsis"/>
                                 </DataTemplate>
-                            </ListBox.DataTemplates>
-                        </ListBox>
-                        <ListBox ItemsSource="{Binding BlameRows}" Background="Transparent" IsVisible="{Binding ShowingBlame}">
-                            <ListBox.ItemsPanel>
+                            </views:CopyListBox.DataTemplates>
+                        </views:CopyListBox>
+                        <views:CopyListBox ItemsSource="{Binding BlameRows}" Background="Transparent" IsVisible="{Binding ShowingBlame}">
+                            <views:CopyListBox.ItemsPanel>
                                 <ItemsPanelTemplate>
                                     <VirtualizingStackPanel/>
                                 </ItemsPanelTemplate>
-                            </ListBox.ItemsPanel>
-                            <ListBox.ItemTemplate>
+                            </views:CopyListBox.ItemsPanel>
+                            <views:CopyListBox.ItemTemplate>
                                 <DataTemplate x:DataType="vm:BlameRow">
                                     <Grid ColumnDefinitions="48,180,*">
-                                        <TextBlock Classes="diff" Text="{Binding Number}" Opacity="0.55"/>
-                                        <TextBlock Grid.Column="1" Classes="diff" Text="{Binding Meta}" Opacity="0.75" TextTrimming="CharacterEllipsis" Margin="0,0,8,0"/>
-                                        <TextBlock Grid.Column="2" Classes="diff" Text="{Binding Text}"/>
+                                        <views:CopyableText Classes="diff" CopyKey="number" Text="{Binding Number}" Opacity="0.55"/>
+                                        <views:CopyableText Grid.Column="1" Classes="diff" CopyKey="meta" Text="{Binding Meta}" Opacity="0.75" TextTrimming="CharacterEllipsis" Margin="0,0,8,0"/>
+                                        <views:CopyableText Grid.Column="2" Classes="diff" CopyKey="blame" Text="{Binding Text}"/>
                                     </Grid>
                                 </DataTemplate>
-                            </ListBox.ItemTemplate>
-                        </ListBox>
-                        <ScrollViewer IsVisible="{Binding ShowingMerge}" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
-                            <ItemsControl ItemsSource="{Binding MergeRegions}">
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate x:DataType="vm:MergeRegionRow">
-                                        <StackPanel Margin="8,4,8,8">
-                                            <TextBlock Classes="diff" Text="{Binding Context}" TextWrapping="Wrap" IsVisible="{Binding IsContext}"/>
-                                            <Grid ColumnDefinitions="*,8,*,8,*" IsVisible="{Binding IsConflict}">
-                                                <StackPanel>
-                                                    <Button Classes="flat" Content="Take ours" Command="{Binding TakeOursCommand}" HorizontalAlignment="Left" Margin="0,0,0,4"/>
-                                                    <TextBlock Classes="diff" Text="{Binding OursDisplay}" TextWrapping="Wrap"/>
-                                                </StackPanel>
-                                                <TextBox Grid.Column="2" Classes="diff" Text="{Binding Result, Mode=TwoWay}" AcceptsReturn="True" TextWrapping="Wrap"
-                                                         MinHeight="72" MaxHeight="280" VerticalContentAlignment="Top"/>
-                                                <StackPanel Grid.Column="4">
-                                                    <Button Classes="flat" Content="Take theirs" Command="{Binding TakeTheirsCommand}" HorizontalAlignment="Left" Margin="0,0,0,4"/>
-                                                    <TextBlock Classes="diff" Text="{Binding TheirsDisplay}" TextWrapping="Wrap"/>
-                                                </StackPanel>
-                                            </Grid>
-                                            <StackPanel IsVisible="{Binding ShowBaseSection}" Margin="0,6,0,0" Spacing="2">
-                                                <TextBlock Text="Base" Opacity="0.65" FontSize="12"/>
-                                                <TextBlock Classes="diff" Text="{Binding BaseDisplay}" TextWrapping="Wrap"/>
+                            </views:CopyListBox.ItemTemplate>
+                        </views:CopyListBox>
+                        <views:CopyListBox ItemsSource="{Binding MergeRegions}" Background="Transparent" IsVisible="{Binding ShowingMerge}">
+                            <views:CopyListBox.ItemTemplate>
+                                <DataTemplate x:DataType="vm:MergeRegionRow">
+                                    <StackPanel Margin="8,4,8,8">
+                                        <views:CopyableText Classes="diff" CopyKey="context" Text="{Binding Context}" TextWrapping="Wrap" IsVisible="{Binding IsContext}"/>
+                                        <Grid ColumnDefinitions="*,8,*,8,*" IsVisible="{Binding IsConflict}">
+                                            <StackPanel>
+                                                <Button Classes="flat" Content="Take ours" Command="{Binding TakeOursCommand}" HorizontalAlignment="Left" Margin="0,0,0,4"/>
+                                                <views:CopyableText Classes="diff" CopyKey="ours" Text="{Binding OursDisplay}" TextWrapping="Wrap"/>
                                             </StackPanel>
+                                            <TextBox Grid.Column="2" Classes="diff" Text="{Binding Result, Mode=TwoWay}" AcceptsReturn="True" TextWrapping="Wrap"
+                                                     MinHeight="72" MaxHeight="280" VerticalContentAlignment="Top"/>
+                                            <StackPanel Grid.Column="4">
+                                                <Button Classes="flat" Content="Take theirs" Command="{Binding TakeTheirsCommand}" HorizontalAlignment="Left" Margin="0,0,0,4"/>
+                                                <views:CopyableText Classes="diff" CopyKey="theirs" Text="{Binding TheirsDisplay}" TextWrapping="Wrap"/>
+                                            </StackPanel>
+                                        </Grid>
+                                        <StackPanel IsVisible="{Binding ShowBaseSection}" Margin="0,6,0,0" Spacing="2">
+                                            <TextBlock Text="Base" Opacity="0.65" FontSize="12"/>
+                                            <views:CopyableText Classes="diff" CopyKey="base" Text="{Binding BaseDisplay}" TextWrapping="Wrap"/>
                                         </StackPanel>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                        </ScrollViewer>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </views:CopyListBox.ItemTemplate>
+                        </views:CopyListBox>
                     </Grid>
                 </DockPanel>
             </Grid>

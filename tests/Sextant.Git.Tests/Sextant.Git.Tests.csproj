@@ -22,5 +22,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Sextant.Git\Sextant.Git.csproj" />
+    <Compile Include="..\..\src\LineCopy.cs" Link="LineCopy.cs" />
   </ItemGroup>
 </Project>
