@@ -55,9 +55,42 @@ public partial class MainWindow : Window
         if (DataContext is not MainViewModel vm)
             return;
         var ctrl = e.KeyModifiers.HasFlag(KeyModifiers.Control) || e.KeyModifiers.HasFlag(KeyModifiers.Meta);
-        if (ctrl && e.Key == Key.P)
+        var shift = e.KeyModifiers.HasFlag(KeyModifiers.Shift);
+        var alt = e.KeyModifiers.HasFlag(KeyModifiers.Alt);
+        if (ctrl && !shift && !alt && e.Key == Key.P)
         {
             vm.TogglePalette();
+            e.Handled = true;
+            return;
+        }
+
+        if (ctrl && !shift && !alt && e.Key == Key.O)
+        {
+            if (vm.CanUseGit)
+                vm.OpenFolderCommand.Execute(null);
+            e.Handled = true;
+            return;
+        }
+
+        if (ctrl && !shift && !alt && e.Key == Key.F && vm.ActiveTab is { } searchTab)
+        {
+            searchTab.ToggleHistorySearchCommand.Execute(null);
+            e.Handled = true;
+            return;
+        }
+
+        if (ctrl && !shift && !alt && e.Key == Key.B && vm.ActiveTab is { } branchTab)
+        {
+            if (branchTab.CanRunCommands)
+                branchTab.CreateBranchCommand.Execute(null);
+            e.Handled = true;
+            return;
+        }
+
+        if (ctrl && shift && !alt && e.Key == Key.S && vm.ActiveTab is { } stashTab)
+        {
+            if (stashTab.CanRunCommands)
+                stashTab.StashCommand.Execute(null);
             e.Handled = true;
             return;
         }
@@ -69,7 +102,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (ctrl && e.Key == Key.W)
+        if (ctrl && !shift && !alt && e.Key == Key.W)
         {
             if (vm.PaletteOpen)
                 vm.ClosePalette();
@@ -79,7 +112,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (ctrl && e.Key == Key.Tab)
+        if (ctrl && !shift && !alt && e.Key == Key.Tab)
         {
             vm.NextTab();
             e.Handled = true;

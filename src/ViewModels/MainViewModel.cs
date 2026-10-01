@@ -485,6 +485,7 @@ public partial class MainViewModel : ViewModelBase, IWorkspaceHost
             _palette.Add(new PaletteItem { Title = "Checkout branch", Run = tab.CheckoutFromPalette });
             _palette.Add(new PaletteItem { Title = "Create branch", Run = tab.CreateBranch });
             _palette.Add(new PaletteItem { Title = "Merge branch", Run = tab.MergeFromPalette });
+            _palette.Add(new PaletteItem { Title = "Search history", Run = () => { tab.ToggleHistorySearchCommand.Execute(null); return Task.CompletedTask; } });
             _palette.Add(new PaletteItem { Title = "Stash", Run = () => tab.StashCommand.ExecuteAsync(null) });
             _palette.Add(new PaletteItem { Title = "Add remote", Run = () => tab.AddRemoteCommand.ExecuteAsync(null) });
             _palette.Add(new PaletteItem { Title = "Toggle side-by-side diff", Run = () => tab.ToggleSideBySideCommand.ExecuteAsync(null) });

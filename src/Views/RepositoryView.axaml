@@ -22,22 +22,23 @@
             <TextBlock Text="{Binding ConflictText}" TextWrapping="Wrap"/>
         </Border>
 
-        <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" Margin="8,6">
+        <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto,Auto,Auto,Auto" Margin="8,6">
             <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
                 <TextBlock Text="{Binding BranchText}" FontWeight="SemiBold" VerticalAlignment="Center"/>
                 <TextBlock Text="{Binding AheadBehindText}" IsVisible="{Binding ShowAheadBehind}" VerticalAlignment="Center" Opacity="0.75"/>
                 <TextBlock Text="{Binding BusyText}" IsVisible="{Binding IsBusy}" VerticalAlignment="Center" Opacity="0.75"/>
             </StackPanel>
-            <Button Grid.Column="1" Content="Fetch" Command="{Binding FetchCommand}" IsEnabled="{Binding CanRunCommands}"/>
-            <Button Grid.Column="2" Content="Pull" Command="{Binding PullCommand}" Margin="6,0,0,0" IsEnabled="{Binding CanRunCommands}"/>
-            <Button Grid.Column="3" Content="Push" Command="{Binding PushCommand}" Margin="6,0,0,0" IsEnabled="{Binding CanRunCommands}"/>
-            <Button Grid.Column="4" Content="Branch" Command="{Binding CreateBranchCommand}" Margin="6,0,0,0" IsEnabled="{Binding CanRunCommands}"/>
-            <Button Grid.Column="5" Content="Stash" Command="{Binding StashCommand}" Margin="6,0,0,0" IsEnabled="{Binding CanRunCommands}"/>
-            <Button Grid.Column="6" Content="Remote" Command="{Binding AddRemoteCommand}" Margin="6,0,0,0" IsEnabled="{Binding CanRunCommands}"/>
-            <Button Grid.Column="7" Content="Continue" Command="{Binding ContinueSequencerCommand}" Margin="6,0,0,0" IsVisible="{Binding IsConflicted}"/>
-            <Button Grid.Column="8" Content="Abort" Command="{Binding AbortMergeCommand}" Margin="6,0,0,0" IsVisible="{Binding IsConflicted}"/>
-            <Button Grid.Column="9" Content="Cancel" Command="{Binding CancelCommand}" Margin="6,0,0,0" IsVisible="{Binding CanCancel}"/>
-            <Button Grid.Column="10" Content="Log" Command="{Binding ToggleCommandsCommand}" Margin="6,0,0,0"/>
+            <SplitButton Grid.Column="1" Content="Pull" Command="{Binding PullCommand}" IsEnabled="{Binding CanRunCommands}">
+                <SplitButton.Flyout>
+                    <MenuFlyout>
+                        <MenuItem Header="Fetch" Command="{Binding FetchCommand}"/>
+                    </MenuFlyout>
+                </SplitButton.Flyout>
+            </SplitButton>
+            <Button Grid.Column="2" Content="Push" Command="{Binding PushCommand}" Margin="6,0,0,0" IsEnabled="{Binding CanRunCommands}"/>
+            <Button Grid.Column="3" Content="Continue" Command="{Binding ContinueSequencerCommand}" Margin="6,0,0,0" IsVisible="{Binding IsConflicted}"/>
+            <Button Grid.Column="4" Content="Abort" Command="{Binding AbortMergeCommand}" Margin="6,0,0,0" IsVisible="{Binding IsConflicted}"/>
+            <Button Grid.Column="5" Content="Cancel" Command="{Binding CancelCommand}" Margin="6,0,0,0" IsVisible="{Binding CanCancel}"/>
         </Grid>
 
         <Grid x:Name="Columns" Grid.Row="3" Margin="4,0,4,4">
@@ -115,9 +116,9 @@
             <GridSplitter Grid.Column="1" ResizeDirection="Columns"/>
 
             <DockPanel Grid.Column="2">
-                <StackPanel DockPanel.Dock="Top" Margin="0,0,0,4" Spacing="4">
-                    <Grid ColumnDefinitions="*,Auto,Auto">
-                        <TextBox PlaceholderText="Search subject, author, sha, or branch:name" Text="{Binding HistoryText}" KeyDown="OnHistoryKeyDown"/>
+                <StackPanel DockPanel.Dock="Top" Margin="0,0,0,4" Spacing="4" IsVisible="{Binding ShowHistoryChrome}">
+                    <Grid ColumnDefinitions="*,Auto,Auto" IsVisible="{Binding ShowHistorySearch}">
+                        <TextBox x:Name="HistorySearchBox" PlaceholderText="Search subject, author, sha, or branch:name" Text="{Binding HistoryText}" KeyDown="OnHistoryKeyDown"/>
                         <Button Grid.Column="1" Classes="flat" Content="Search" Command="{Binding SearchHistoryCommand}" Margin="4,0,0,0"/>
                         <Button Grid.Column="2" Classes="flat" Content="Clear" Command="{Binding ClearHistoryCommand}" Margin="4,0,0,0"/>
                     </Grid>

@@ -16,6 +16,7 @@ public partial class RepositoryView : UserControl
     private bool _widthsApplied;
     private bool _scrollHooked;
     private RepositoryViewModel? _scrollVm;
+    private RepositoryViewModel? _watched;
 
     public RepositoryView()
     {
@@ -39,19 +40,54 @@ public partial class RepositoryView : UserControl
         AttachGraphScroll();
         GraphList.TemplateApplied += (_, _) => AttachGraphScroll();
         HookFileScroll();
+        WatchViewModel();
     }
 
     protected override void OnDataContextChanged(EventArgs e)
     {
         base.OnDataContextChanged(e);
         if (IsLoaded)
+        {
             HookFileScroll();
+            WatchViewModel();
+        }
     }
 
     protected override void OnUnloaded(RoutedEventArgs e)
     {
         UnhookFileScroll();
+        if (_watched is not null)
+        {
+            _watched.PropertyChanged -= OnViewModelPropertyChanged;
+            _watched = null;
+        }
+
         base.OnUnloaded(e);
+    }
+
+    private void WatchViewModel()
+    {
+        var next = DataContext as RepositoryViewModel;
+        if (ReferenceEquals(_watched, next))
+            return;
+        if (_watched is not null)
+            _watched.PropertyChanged -= OnViewModelPropertyChanged;
+        _watched = next;
+        if (_watched is not null)
+            _watched.PropertyChanged += OnViewModelPropertyChanged;
+    }
+
+    private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(RepositoryViewModel.ShowHistorySearch)
+            && sender is RepositoryViewModel { ShowHistorySearch: true })
+        {
+            Dispatcher.UIThread.Post(() =>
+            {
+                HistorySearchBox.Focus();
+                HistorySearchBox.SelectAll();
+            }, DispatcherPriority.Background);
+        }
     }
 
     private ColumnDefinition LocationsColumn => Columns.ColumnDefinitions[0];

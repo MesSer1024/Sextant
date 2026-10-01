@@ -18,6 +18,14 @@
                 <MenuItem Header="_Clone repository…" Command="{Binding CloneCommand}" IsEnabled="{Binding CanUseGit}"/>
                 <MenuItem Header="_Init repository…" Command="{Binding InitCommand}" IsEnabled="{Binding CanUseGit}"/>
             </MenuItem>
+            <MenuItem Header="_Repository" IsEnabled="{Binding HasActiveTab}">
+                <MenuItem Header="_Branch…" Command="{Binding ActiveTab.CreateBranchCommand}" IsEnabled="{Binding ActiveTab.CanRunCommands}" InputGesture="Ctrl+B"/>
+                <MenuItem Header="_Stash…" Command="{Binding ActiveTab.StashCommand}" IsEnabled="{Binding ActiveTab.CanRunCommands}" InputGesture="Ctrl+Shift+S"/>
+                <MenuItem Header="Add _remote…" Command="{Binding ActiveTab.AddRemoteCommand}" IsEnabled="{Binding ActiveTab.CanRunCommands}"/>
+                <MenuItem Header="Command _log" Command="{Binding ActiveTab.ToggleCommandsCommand}"/>
+                <Separator/>
+                <MenuItem Header="_Search" Command="{Binding ActiveTab.ToggleHistorySearchCommand}" InputGesture="Ctrl+F"/>
+            </MenuItem>
         </Menu>
 
         <Border Grid.Row="1" IsVisible="{Binding HasGitProblem}" Padding="12,8" Background="#33C42B1C">

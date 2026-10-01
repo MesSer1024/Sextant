@@ -26,6 +26,11 @@ public partial class RepositoryViewModel
     public partial bool HasHistoryFilter { get; set; }
 
     [ObservableProperty]
+    public partial bool ShowHistorySearch { get; set; }
+
+    public bool ShowHistoryChrome => ShowHistorySearch || HasHistoryFilter;
+
+    [ObservableProperty]
     public partial string ConflictText { get; set; } = "";
 
     [ObservableProperty]
@@ -83,6 +88,13 @@ public partial class RepositoryViewModel
     }
 
     partial void OnShowingMergeChanged(bool value) => OnPropertyChanged(nameof(ShowingDiff));
+
+    partial void OnHasHistoryFilterChanged(bool value) => OnPropertyChanged(nameof(ShowHistoryChrome));
+
+    partial void OnShowHistorySearchChanged(bool value) => OnPropertyChanged(nameof(ShowHistoryChrome));
+
+    [RelayCommand]
+    private void ToggleHistorySearch() => ShowHistorySearch = !ShowHistorySearch;
 
     partial void OnShowMergeBaseChanged(bool value)
     {
