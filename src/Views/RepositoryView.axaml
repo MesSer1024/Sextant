@@ -129,8 +129,7 @@
                     <ListBox.Styles>
                         <Style Selector="ListBoxItem">
                             <Setter Property="Padding" Value="4,0"/>
-                            <Setter Property="MinHeight" Value="24"/>
-                            <Setter Property="MaxHeight" Value="24"/>
+                            <Setter Property="MinHeight" Value="0"/>
                             <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
                         </Style>
                     </ListBox.Styles>
@@ -141,7 +140,7 @@
                     </ListBox.ItemsPanel>
                     <ListBox.ItemTemplate>
                         <DataTemplate x:DataType="vm:GraphRowViewModel">
-                            <Grid ColumnDefinitions="Auto,*,Auto,Auto" Height="24">
+                            <Grid ColumnDefinitions="Auto,*">
                                 <Grid.ContextMenu>
                                     <ContextMenu Opening="OnMenuOpening">
                                         <MenuItem Header="Checkout" Command="{Binding CheckoutCommand}" IsVisible="{Binding ShowCheckout}"/>
@@ -155,10 +154,11 @@
                                         <MenuItem Header="Tag" Command="{Binding TagCommand}" IsVisible="{Binding ShowRewrite}"/>
                                     </ContextMenu>
                                 </Grid.ContextMenu>
-                                <controls:LaneCanvas Grid.Column="0" Geometry="{Binding Lanes}" IsVisible="{Binding ShowLanes}" Margin="0,0,6,0"/>
-                                <TextBlock Grid.Column="1" Text="{Binding Subject}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
-                                <TextBlock Grid.Column="2" Text="{Binding RefText}" VerticalAlignment="Center" Margin="8,0" Opacity="0.7" FontSize="11"/>
-                                <TextBlock Grid.Column="3" Text="{Binding Meta}" VerticalAlignment="Center" Opacity="0.65" FontSize="11"/>
+                                <controls:LaneCanvas Grid.Column="0" Geometry="{Binding Lanes}" IsVisible="{Binding ShowLanes}" VerticalAlignment="Stretch" Margin="0,0,8,0"/>
+                                <StackPanel Grid.Column="1" Margin="0,3" VerticalAlignment="Center">
+                                    <TextBlock Text="{Binding Subject}" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap"/>
+                                    <TextBlock Text="{Binding Detail}" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" FontSize="12" Opacity="0.65" Margin="0,1,0,0"/>
+                                </StackPanel>
                             </Grid>
                         </DataTemplate>
                     </ListBox.ItemTemplate>

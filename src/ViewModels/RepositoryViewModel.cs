@@ -740,7 +740,8 @@ public partial class RepositoryViewModel : ViewModelBase
             }
             else if (Rows.Count > 0 && Rows[0].IsWorkingCopy)
             {
-                Rows[0].Subject = WorkingSummary(state);
+                Rows[0].Subject = "Working copy";
+                Rows[0].Detail = WorkingDetail(state);
             }
 
             UpdateCommands(state);
@@ -793,7 +794,8 @@ public partial class RepositoryViewModel : ViewModelBase
     {
         IsWorkingCopy = true,
         ShowLanes = false,
-        Subject = WorkingSummary(state),
+        Subject = "Working copy",
+        Detail = WorkingDetail(state),
         CreateBranchCommand = CreateBranchCommand,
     };
 
@@ -804,6 +806,8 @@ public partial class RepositoryViewModel : ViewModelBase
             && string.Equals(reference.Oid, commit.Commit.Sha, StringComparison.OrdinalIgnoreCase)).ToList();
         var checkout = locals.Count == 1 && !locals[0].IsHead;
         var name = checkout ? ShortHead(locals[0].Name) : "";
+        var head = !string.IsNullOrEmpty(state.Branch.Oid)
+            && string.Equals(state.Branch.Oid, commit.Commit.Sha, StringComparison.OrdinalIgnoreCase);
         return new GraphRowViewModel
         {
             Sha = commit.Commit.Sha,
@@ -813,9 +817,8 @@ public partial class RepositoryViewModel : ViewModelBase
             Subject = commit.Commit.Subject,
             Author = commit.Commit.AuthorName,
             When = Relative(commit.Commit.AuthorUnixSeconds),
-            RefText = RefLabel(commit.Commit.Sha, state.Refs),
-            IsHead = !string.IsNullOrEmpty(state.Branch.Oid)
-                && string.Equals(state.Branch.Oid, commit.Commit.Sha, StringComparison.OrdinalIgnoreCase),
+            IsHead = head,
+            Detail = CommitDetail(commit.Commit, RefLabel(commit.Commit.Sha, state.Refs), head),
             ShowCheckout = checkout,
             ShowRewrite = true,
             CheckoutCommand = checkout
@@ -1680,7 +1683,27 @@ public partial class RepositoryViewModel : ViewModelBase
         }
     }
 
-    private static string WorkingSummary(SessionState state)
+    private static string CommitDetail(CommitRecord commit, string refs, bool head)
+    {
+        var parts = new List<string>();
+        if (commit.AuthorName.Length > 0)
+            parts.Add(commit.AuthorName);
+        parts.Add(Relative(commit.AuthorUnixSeconds));
+        parts.Add(CommitDate(commit.AuthorUnixSeconds));
+        var sha = Short(commit.Sha);
+        if (sha.Length > 0)
+            parts.Add(sha);
+        if (head)
+            parts.Add("HEAD");
+        if (refs.Length > 0)
+            parts.Add(refs);
+        return string.Join("  ·  ", parts);
+    }
+
+    private static string CommitDate(long unixSeconds) =>
+        DateTimeOffset.FromUnixTimeSeconds(unixSeconds).LocalDateTime.ToString("d MMM yyyy", CultureInfo.CurrentCulture);
+
+    private static string WorkingDetail(SessionState state)
     {
         var sequencer = state.Sequencer switch
         {
@@ -1690,9 +1713,9 @@ public partial class RepositoryViewModel : ViewModelBase
             _ => null,
         };
         if (sequencer is not null)
-            return "Working copy  ·  " + sequencer;
+            return sequencer;
         if (state.Entries.Count == 0)
-            return state.Branch.Unborn ? "Working copy  ·  No commits yet" : "Working copy  ·  Clean";
+            return state.Branch.Unborn ? "No commits yet" : "Clean";
         var conflicts = state.Entries.Count(entry => entry.Kind == ChangeKind.Unmerged);
         var staged = state.Entries.Count(entry => entry.Staged && entry.Kind != ChangeKind.Unmerged);
         var unstaged = state.Entries.Count(entry => entry.Kind != ChangeKind.Unmerged && (entry.Unstaged || entry.Kind == ChangeKind.Untracked));
@@ -1703,7 +1726,7 @@ public partial class RepositoryViewModel : ViewModelBase
             parts.Add($"{staged} staged");
         if (unstaged > 0)
             parts.Add($"{unstaged} unstaged");
-        return "Working copy  ·  " + string.Join(", ", parts);
+        return string.Join(", ", parts);
     }
 
     private static string DescribeBranch(BranchHeader branch)

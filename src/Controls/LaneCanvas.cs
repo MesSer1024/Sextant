@@ -38,7 +38,8 @@ public sealed class LaneCanvas : Control
     protected override Size MeasureOverride(Size available)
     {
         var count = Math.Max(1, Geometry?.LaneCount ?? 1);
-        return new Size(8 + (count * Pitch), 24);
+        var height = double.IsFinite(available.Height) && available.Height > 0 ? available.Height : 0;
+        return new Size(8 + (count * Pitch), height);
     }
 
     public override void Render(DrawingContext context)

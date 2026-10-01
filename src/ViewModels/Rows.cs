@@ -40,13 +40,11 @@ public partial class GraphRowViewModel : ObservableObject
 
     public string When { get; init; } = "";
 
-    public string Meta => string.IsNullOrEmpty(Author) ? "" : Author + "  ·  " + When;
-
     [ObservableProperty]
     public partial string Subject { get; set; } = "";
 
     [ObservableProperty]
-    public partial string RefText { get; set; } = "";
+    public partial string Detail { get; set; } = "";
 
     [ObservableProperty]
     public partial bool IsHead { get; set; }
