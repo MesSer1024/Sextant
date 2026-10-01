@@ -66,12 +66,21 @@ public sealed partial class RepositorySession
             return Task.FromResult<ImagePreview?>(null);
         return RunAsync(async ct =>
         {
-            var notice = new StringBuilder();
-            var before = await ImageSideAsync(request.Path, request.BeforeRevision, request.BeforeIsWorktree, notice, ct).ConfigureAwait(false);
-            var after = await ImageSideAsync(request.Path, request.AfterRevision, request.AfterIsWorktree, notice, ct).ConfigureAwait(false);
-            if (before is null && after is null && notice.Length == 0)
+            var beforePath = string.IsNullOrEmpty(request.BeforePath) ? request.Path : request.BeforePath;
+            var before = await ImageSideAsync(beforePath, request.BeforeRevision, request.BeforeIsWorktree, ct).ConfigureAwait(false);
+            var after = await ImageSideAsync(request.Path, request.AfterRevision, request.AfterIsWorktree, ct).ConfigureAwait(false);
+            if (before.Bytes is null && after.Bytes is null && before.Notice.Length == 0 && after.Notice.Length == 0)
                 return null;
-            return new ImagePreview(before, after, notice.ToString().Trim());
+            var notice = new StringBuilder();
+            if (before.Notice.Length > 0)
+                notice.Append(before.Notice).Append(' ');
+            if (after.Notice.Length > 0)
+                notice.Append(after.Notice);
+            return new ImagePreview(before.Bytes, after.Bytes, notice.ToString().Trim())
+            {
+                BeforeNotice = before.Bytes is null ? before.Notice : "",
+                AfterNotice = after.Bytes is null ? after.Notice : "",
+            };
         }, cancellationToken);
     }
 
@@ -215,11 +224,10 @@ public sealed partial class RepositorySession
         return blob.Stdout;
     }
 
-    private async Task<byte[]?> ImageSideAsync(
+    private async Task<ImageBytes> ImageSideAsync(
         string path,
         string? revision,
         bool worktree,
-        StringBuilder notice,
         CancellationToken cancellationToken)
     {
         if (worktree)
@@ -227,45 +235,134 @@ public sealed partial class RepositorySession
             var full = RepoPath.CombineUnder(_toplevel, path);
             if (full is null || !File.Exists(full))
             {
-                if (Sparse())
-                    notice.Append("This path is not in the working tree. Sparse checkout was left as it is. ");
-                return null;
+                return Sparse()
+                    ? new ImageBytes(null, "This path is not in the working tree. Sparse checkout was left as it is.")
+                    : new ImageBytes(null, "No file in this version.");
             }
 
             if (!TryInspectLocal(full, out var pointer, out var length))
-                return null;
+                return new ImageBytes(null, "No file in this version.");
             if (pointer is not null)
-            {
-                notice.Append("Git LFS pointer. The image was not downloaded. ");
-                return null;
-            }
-
+                return await ExpandWorktreePointerAsync(full, path, pointer, cancellationToken).ConfigureAwait(false);
             if (!PreviewLimit.Allows(length))
-            {
-                notice.Append("This image is larger than 8 MB, so it was not loaded. ");
-                return null;
-            }
-
-            return await File.ReadAllBytesAsync(full, cancellationToken).ConfigureAwait(false);
+                return new ImageBytes(null, "This image is larger than 8 MB, so it was not loaded.");
+            return new ImageBytes(await File.ReadAllBytesAsync(full, cancellationToken).ConfigureAwait(false), "");
         }
 
         if (revision is null)
-            return null;
-        var bytes = await _scheduler.ReadAsync(
-            inner => ReadRawBlobAsync(GitCommands.ObjectSpec(revision, path), inner),
-            cancellationToken).ConfigureAwait(false);
-        if (bytes is null)
-            return null;
-        if (LfsPointers.TryParseBytes(bytes, out var lfs) && lfs is not null)
+            return new ImageBytes(null, "No file in this version.");
+        return await _scheduler.ReadAsync(inner => ReadImageBlobAsync(revision, path, inner), cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<ImageBytes> ReadImageBlobAsync(string revision, string path, CancellationToken cancellationToken)
+    {
+        var spec = GitCommands.ObjectSpec(revision, path);
+        var sizeOutput = await ExecuteAsync(GitCommands.CatFileSize(_toplevel, spec), null, cancellationToken).ConfigureAwait(false);
+        Track(sizeOutput);
+        if (sizeOutput.ExitCode != 0 || !TrySize(sizeOutput.Stdout, out var size))
+            return new ImageBytes(null, "No file in this version.");
+        if (!PreviewLimit.Allows(size))
+            return new ImageBytes(null, "This image is larger than 8 MB, so it was not loaded.");
+        var blob = await ExecuteAsync(GitCommands.CatFileBlob(_toplevel, spec), null, cancellationToken).ConfigureAwait(false);
+        Track(blob);
+        if (blob.ExitCode != 0 || blob.Stdout.LongLength > HistoryLimits.MaxPreviewBytes)
+            return new ImageBytes(null, "No file in this version.");
+        if (LfsPointers.TryParseBytes(blob.Stdout, out var lfs) && lfs is not null)
+            return await ExpandPointerAsync(revision, path, lfs, blob.Stdout, cancellationToken).ConfigureAwait(false);
+        return new ImageBytes(blob.Stdout, "");
+    }
+
+    private async Task<ImageBytes> ExpandWorktreePointerAsync(string full, string path, LfsPointer pointer, CancellationToken cancellationToken)
+    {
+        if (!PreviewLimit.Allows(pointer.Size))
+            return new ImageBytes(null, "This image is larger than 8 MB, so it was not loaded.");
+        byte[] pointerBytes;
+        try
         {
-            notice.Append("Git LFS pointer ");
-            notice.Append(lfs.Oid);
-            notice.Append(". The image was not downloaded. ");
-            return null;
+            pointerBytes = await File.ReadAllBytesAsync(full, cancellationToken).ConfigureAwait(false);
+        }
+        catch (IOException)
+        {
+            return new ImageBytes(null, "The image could not be downloaded.");
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return new ImageBytes(null, "The image could not be downloaded.");
         }
 
-        return bytes;
+        return await _scheduler.ReadAsync(
+            inner => ExpandPointerAsync(null, path, pointer, pointerBytes, inner),
+            cancellationToken).ConfigureAwait(false);
     }
+
+    /// <summary>
+    /// Turns a pointer into image bytes on stdout. The size is checked before any smudge, and nothing is written into the worktree.
+    /// </summary>
+    private async Task<ImageBytes> ExpandPointerAsync(
+        string? revision,
+        string path,
+        LfsPointer pointer,
+        byte[] pointerBytes,
+        CancellationToken cancellationToken)
+    {
+        if (!PreviewLimit.Allows(pointer.Size))
+            return new ImageBytes(null, "This image is larger than 8 MB, so it was not loaded.");
+
+        if (revision is not null)
+        {
+            var filtered = await ExecuteAsync(
+                GitCommands.CatFileFiltered(_toplevel, GitCommands.ObjectSpec(revision, path)),
+                null,
+                cancellationToken).ConfigureAwait(false);
+            Track(filtered);
+            if (ImageBytesOf(filtered) is { } fromFilter)
+                return fromFilter;
+        }
+
+        // A worktree pointer has no revision. A revision whose rev:path form did not smudge still has the pointer bytes.
+        // hash-object stores that pointer, then --path runs the attribute filter. The worktree file is not written.
+        if (path.Length > 0)
+        {
+            var stored = await ExecuteAsync(
+                GitCommands.HashObject(_toplevel),
+                null,
+                cancellationToken,
+                standardInput: pointerBytes).ConfigureAwait(false);
+            Track(stored);
+            var id = Encoding.UTF8.GetString(stored.Stdout).Trim();
+            if (stored.ExitCode == 0 && id.Length > 0)
+            {
+                var filtered = await ExecuteAsync(
+                    GitCommands.CatFileFilteredPath(_toplevel, path, id),
+                    null,
+                    cancellationToken).ConfigureAwait(false);
+                Track(filtered);
+                if (ImageBytesOf(filtered) is { } fromPath)
+                    return fromPath;
+            }
+        }
+
+        var smudged = await ExecuteAsync(
+            GitCommands.LfsSmudge(_toplevel),
+            null,
+            cancellationToken,
+            standardInput: pointerBytes).ConfigureAwait(false);
+        Track(smudged);
+        return ImageBytesOf(smudged) ?? new ImageBytes(null, "The image could not be downloaded.");
+    }
+
+    private static ImageBytes? ImageBytesOf(GitOutput output)
+    {
+        if (output.ExitCode != 0 || output.Stdout.Length == 0)
+            return null;
+        if (output.Stdout.LongLength > HistoryLimits.MaxPreviewBytes)
+            return new ImageBytes(null, "This image is larger than 8 MB, so it was not loaded.");
+        if (LfsPointers.TryParseBytes(output.Stdout, out var still) && still is not null)
+            return null;
+        return new ImageBytes(output.Stdout, "");
+    }
+
+    private readonly record struct ImageBytes(byte[]? Bytes, string Notice);
 
     private async Task<BlobLoad> ReadLocalFileAsync(string path, CancellationToken cancellationToken)
     {

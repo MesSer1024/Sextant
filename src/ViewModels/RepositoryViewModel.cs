@@ -972,6 +972,7 @@ public partial class RepositoryViewModel : ViewModelBase
         return new FileRowViewModel
         {
             Path = path,
+            OriginalPath = entry.OriginalPath,
             Label = entry.OriginalPath is { Length: > 0 } original ? original + " → " + path : path,
             StatusText = conflict ? "U" : untracked ? "?" : (stagedList ? entry.IndexStatus : entry.WorkTreeStatus).ToString(),
             Kind = entry.Kind,
@@ -1540,6 +1541,7 @@ public partial class RepositoryViewModel : ViewModelBase
                 rows.Add(new FileRowViewModel
                 {
                     Path = change.Path,
+                    OriginalPath = change.OriginalPath,
                     Label = change.OriginalPath is { Length: > 0 } original ? original + " → " + change.Path : change.Path,
                     StatusText = Letter(change.Kind),
                     Kind = change.Kind,

@@ -170,6 +170,8 @@ public partial class FileRowViewModel : ObservableObject
 
     public string Path { get; init; } = "";
 
+    public string? OriginalPath { get; init; }
+
     public string Label { get; init; } = "";
 
     public string StatusText { get; init; } = "";

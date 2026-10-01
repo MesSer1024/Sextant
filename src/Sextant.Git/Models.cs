@@ -161,9 +161,15 @@ public sealed record ImageRequest(
     string? BeforeRevision,
     string? AfterRevision,
     bool BeforeIsWorktree,
-    bool AfterIsWorktree);
+    bool AfterIsWorktree,
+    string? BeforePath = null);
 
-public sealed record ImagePreview(byte[]? Before, byte[]? After, string Notice);
+public sealed record ImagePreview(byte[]? Before, byte[]? After, string Notice)
+{
+    public string BeforeNotice { get; init; } = "";
+
+    public string AfterNotice { get; init; } = "";
+}
 
 public sealed record CommandLogEntry(
     DateTimeOffset At,

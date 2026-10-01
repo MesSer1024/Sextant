@@ -19,6 +19,7 @@ public partial class RepositoryViewModel
     private string? _lfsPointer;
     private string _lfsPath = "";
     private long _lfsSize;
+    private bool _lfsAfter;
 
     [ObservableProperty]
     public partial bool SparseCheckout { get; set; }
@@ -32,31 +33,12 @@ public partial class RepositoryViewModel
     [ObservableProperty]
     public partial bool ShowLfsDownload { get; set; }
 
-    [ObservableProperty]
-    public partial string ImageNotice { get; set; } = "";
+    public ResetCollection<ImageCompareRow> ImageCompares { get; } = new();
 
     [ObservableProperty]
-    public partial bool HasImageNotice { get; set; }
-
-    [ObservableProperty]
-    public partial Bitmap? ImageBefore { get; set; }
-
-    [ObservableProperty]
-    public partial Bitmap? ImageAfter { get; set; }
-
-    [ObservableProperty]
-    public partial bool HasImageBefore { get; set; }
-
-    [ObservableProperty]
-    public partial bool HasImageAfter { get; set; }
-
-    public bool ShowingImage => HasImageBefore || HasImageAfter;
+    public partial bool ShowingImages { get; set; }
 
     public bool CanOpenLocation => SelectedLocation?.ShowOpen == true;
-
-    partial void OnHasImageBeforeChanged(bool value) => OnPropertyChanged(nameof(ShowingImage));
-
-    partial void OnHasImageAfterChanged(bool value) => OnPropertyChanged(nameof(ShowingImage));
 
     [RelayCommand]
     private async Task AddWorktree()
@@ -208,6 +190,10 @@ public partial class RepositoryViewModel
         var builder = new StringBuilder();
         foreach (var note in document.LfsFiles)
         {
+            // An image pointer is fetched for both sides by the image preview. The button would load only one of them.
+            if (ImageFiles.IsImagePath(note.Path) && ImagePointerWithinCap(note))
+                continue;
+
             if (builder.Length > 0)
                 builder.AppendLine();
             if (note.Path.Length > 0)
@@ -223,35 +209,52 @@ public partial class RepositoryViewModel
                 builder.Append(' ').Append(pointer.Oid).Append(" (").Append(ImageFiles.FormatBytes(pointer.Size)).Append(')');
             }
 
+            if (ImageFiles.IsImagePath(note.Path))
+            {
+                builder.Append(". It is over 8 MB, so it stays a pointer.");
+                continue;
+            }
+
             builder.Append(". Not downloaded.");
             if (note.LocalBytes is { } local)
                 builder.Append(" The working copy already has ").Append(ImageFiles.FormatBytes(local)).Append(" on disk.");
-        }
 
-        var offer = singleFile ? document.LfsFiles.Count == 1 ? document.LfsFiles[0] : null : null;
-        if (offer is not null)
-        {
-            var chosen = offer.After ?? offer.Before;
-            if (offer.LocalBytes is { } onDisk && PreviewLimit.Allows(onDisk))
+            if (!singleFile || document.LfsFiles.Count != 1)
+                continue;
+            var chosen = note.After ?? note.Before;
+            if (note.LocalBytes is { } onDisk && PreviewLimit.Allows(onDisk))
             {
                 ShowLfsDownload = true;
                 _lfsLocal = true;
-                _lfsPath = offer.Path;
+                _lfsAfter = true;
+                _lfsPath = note.Path;
                 _lfsSize = onDisk;
             }
             else if (chosen is not null && PreviewLimit.Allows(chosen.Size))
             {
                 ShowLfsDownload = true;
-                _lfsPath = offer.Path;
+                _lfsPath = note.Path;
                 _lfsSize = chosen.Size;
-                if (offer.After is not null && !_afterIsWorktree && _objectAfter is not null)
+                if (note.After is not null && !_afterIsWorktree && _objectAfter is not null)
+                {
                     _lfsRevision = _objectAfter;
-                else if (offer.Before is not null && _objectBefore is not null)
+                    _lfsAfter = true;
+                }
+                else if (note.Before is not null && _objectBefore is not null)
+                {
                     _lfsRevision = _objectBefore;
+                    _lfsAfter = false;
+                }
                 else if (_objectBefore is not null)
+                {
                     _lfsRevision = _objectBefore;
+                    _lfsAfter = false;
+                }
                 else
+                {
                     _lfsPointer = chosen.Render();
+                    _lfsAfter = true;
+                }
             }
             else if (chosen is not null)
             {
@@ -259,49 +262,142 @@ public partial class RepositoryViewModel
             }
         }
 
+        if (builder.Length == 0)
+        {
+            HasLfsNotice = false;
+            LfsNotice = "";
+            return;
+        }
+
         LfsNotice = builder.ToString();
         HasLfsNotice = true;
     }
 
+    private static bool ImagePointerWithinCap(LfsFileNote note)
+    {
+        if (note.LocalBytes is { } local && PreviewLimit.Allows(local))
+            return true;
+        if (note.Before is { } before && PreviewLimit.Allows(before.Size))
+            return true;
+        if (note.After is { } after && PreviewLimit.Allows(after.Size))
+            return true;
+        return false;
+    }
+
     private async Task LoadImageAsync(FileRowViewModel? file, bool workingCopy, bool range, CancellationToken token)
     {
-        if (_session is null || AllFiles || file is null || !ImageFiles.IsImagePath(file.Path))
+        if (_session is null || token.IsCancellationRequested)
             return;
-        ImageRequest request;
-        if (range)
-            request = new ImageRequest(file.Path, _rangeOlder, _rangeNewer, false, false);
-        else if (workingCopy && file.Untracked)
-            request = new ImageRequest(file.Path, null, null, false, true);
-        else if (workingCopy && _viewingStaged)
-            request = new ImageRequest(file.Path, "HEAD", "", false, false);
-        else if (workingCopy)
-            request = new ImageRequest(file.Path, "", null, false, true);
-        else
-            request = new ImageRequest(file.Path, _objectBefore, _objectAfter, false, false);
+        var targets = ImageTargets(file);
+        if (targets.Count == 0)
+            return;
+        var loaded = new List<(string Path, ImagePreview Preview)>();
+        foreach (var target in targets)
+        {
+            if (token.IsCancellationRequested)
+                return;
+            var beforeRevision = range ? _rangeOlder : _objectBefore;
+            var afterRevision = range ? _rangeNewer : _objectAfter;
+            var afterWorktree = !range && _afterIsWorktree;
+            if (!AllFiles && workingCopy && file?.Untracked == true && !_viewingStaged)
+            {
+                beforeRevision = null;
+                afterRevision = null;
+                afterWorktree = true;
+            }
 
-        var preview = await _session.PreviewImageAsync(request, token);
-        if (preview is null || token.IsCancellationRequested)
+            var preview = await _session.PreviewImageAsync(
+                new ImageRequest(target.Path, beforeRevision, afterRevision, false, afterWorktree, target.BeforePath),
+                token);
+            if (preview is null || token.IsCancellationRequested)
+                continue;
+            loaded.Add((target.Path, preview));
+        }
+
+        if (token.IsCancellationRequested || loaded.Count == 0)
             return;
+
         void Apply()
         {
             if (token.IsCancellationRequested)
                 return;
-            ImageNotice = preview.Notice;
-            HasImageNotice = preview.Notice.Length > 0;
-            SetImages(DecodeImage(preview.Before), DecodeImage(preview.After));
-            if ((preview.Before is { Length: > 0 } && ImageBefore is null) || (preview.After is { Length: > 0 } && ImageAfter is null))
+            var rows = new List<ImageCompareRow>(loaded.Count);
+            foreach (var item in loaded)
             {
-                ImageNotice = string.IsNullOrEmpty(preview.Notice)
-                    ? "This image could not be decoded."
-                    : preview.Notice;
-                HasImageNotice = true;
+                var before = DecodeImage(item.Preview.Before);
+                var after = DecodeImage(item.Preview.After);
+                rows.Add(new ImageCompareRow(
+                    item.Path,
+                    before,
+                    after,
+                    SideNotice(item.Preview.Before, before, item.Preview.BeforeNotice),
+                    SideNotice(item.Preview.After, after, item.Preview.AfterNotice)));
             }
+
+            ReplaceImages(rows);
         }
 
         if (Dispatcher.UIThread.CheckAccess())
             Apply();
         else
             await Dispatcher.UIThread.InvokeAsync(Apply);
+    }
+
+    private List<(string Path, string? BeforePath)> ImageTargets(FileRowViewModel? file)
+    {
+        var targets = new List<(string Path, string? BeforePath)>();
+        void Add(string? path, string? before)
+        {
+            if (string.IsNullOrEmpty(path) || !ImageFiles.IsImagePath(path))
+                return;
+            if (targets.Exists(item => string.Equals(item.Path, path, StringComparison.Ordinal)))
+                return;
+            if (string.Equals(before, path, StringComparison.Ordinal))
+                before = null;
+            targets.Add((path, before));
+        }
+
+        if (!AllFiles)
+        {
+            if (file is not null)
+                Add(file.Path, file.OriginalPath ?? (_rawPatch is null ? null : RenameSource(_rawPatch)));
+            return targets;
+        }
+
+        if (!string.IsNullOrEmpty(_rawPatch))
+        {
+            foreach (var entry in DiffParser.ParseFiles(_rawPatch))
+                Add(entry.Path, RenameSource(entry.Document.RawPatch));
+        }
+
+        if (file is { Untracked: true })
+            Add(file.Path, null);
+        return targets;
+    }
+
+    private static string? RenameSource(string patch)
+    {
+        var normalized = patch.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
+        foreach (var line in normalized.Split('\n'))
+        {
+            if (!line.StartsWith("rename from ", StringComparison.Ordinal))
+                continue;
+            var path = line["rename from ".Length..];
+            if (path.Length >= 2 && path[0] == '"' && path[^1] == '"')
+                path = path[1..^1];
+            return path.Length == 0 ? null : path;
+        }
+
+        return null;
+    }
+
+    private static string SideNotice(byte[]? bytes, Bitmap? bitmap, string previewNotice)
+    {
+        if (bitmap is not null)
+            return "";
+        if (bytes is { Length: > 0 })
+            return "This image could not be decoded.";
+        return previewNotice;
     }
 
     private void ShowLoaded(string path, BlobLoad loaded)
@@ -326,14 +422,11 @@ public partial class RepositoryViewModel
             var bitmap = DecodeImage(loaded.Bytes);
             if (bitmap is null)
             {
-                ImageNotice = "The file was loaded, but it could not be decoded as an image.";
-                HasImageNotice = true;
+                PlaceImageNotice(path, "The file was loaded, but it could not be decoded as an image.");
                 return;
             }
 
-            SetImages(null, bitmap);
-            ImageNotice = "Loaded " + ImageFiles.FormatBytes(loaded.Bytes.Length) + ".";
-            HasImageNotice = true;
+            PlaceImage(path, bitmap);
             ShowLfsDownload = false;
             return;
         }
@@ -391,23 +484,55 @@ public partial class RepositoryViewModel
         _lfsRevision = null;
         _lfsPointer = null;
         _lfsLocal = false;
-        HasImageNotice = false;
-        ImageNotice = "";
-        SetImages(null, null);
+        _lfsAfter = false;
+        ReplaceImages([]);
     }
 
-    private void SetImages(Bitmap? before, Bitmap? after)
+    private void ReplaceImages(IReadOnlyList<ImageCompareRow> rows)
     {
-        var oldBefore = ImageBefore;
-        var oldAfter = ImageAfter;
-        ImageBefore = before;
-        ImageAfter = after;
-        HasImageBefore = before is not null;
-        HasImageAfter = after is not null;
-        if (!ReferenceEquals(oldBefore, before))
-            oldBefore?.Dispose();
-        if (!ReferenceEquals(oldAfter, after))
-            oldAfter?.Dispose();
+        foreach (var old in ImageCompares)
+            old.Release();
+        ImageCompares.Reset(rows);
+        ShowingImages = ImageCompares.Count > 0;
+    }
+
+    private void PlaceImage(string path, Bitmap bitmap)
+    {
+        var row = ImageCompares.FirstOrDefault(item => string.Equals(item.Path, path, StringComparison.Ordinal));
+        if (row is null)
+        {
+            row = new ImageCompareRow(path, null, null, "", "");
+            ImageCompares.Add(row);
+            ShowingImages = true;
+        }
+
+        if (_lfsAfter)
+        {
+            row.After = bitmap;
+            row.AfterNotice = "";
+        }
+        else
+        {
+            row.Before = bitmap;
+            row.BeforeNotice = "";
+        }
+    }
+
+    private void PlaceImageNotice(string path, string notice)
+    {
+        var row = ImageCompares.FirstOrDefault(item => string.Equals(item.Path, path, StringComparison.Ordinal));
+        if (row is null)
+        {
+            row = new ImageCompareRow(path, null, null, _lfsAfter ? "" : notice, _lfsAfter ? notice : "");
+            ImageCompares.Add(row);
+            ShowingImages = true;
+            return;
+        }
+
+        if (_lfsAfter)
+            row.AfterNotice = notice;
+        else
+            row.BeforeNotice = notice;
     }
 
     private static Bitmap? DecodeImage(byte[]? data)
@@ -444,4 +569,95 @@ public partial class RepositoryViewModel
             return false;
         }
     }
+}
+
+public sealed class ImageCompareRow : ObservableObject
+{
+    private Bitmap? _before;
+    private Bitmap? _after;
+    private string _beforeNotice;
+    private string _afterNotice;
+
+    public ImageCompareRow(string path, Bitmap? before, Bitmap? after, string beforeNotice, string afterNotice)
+    {
+        Path = path;
+        _before = before;
+        _after = after;
+        _beforeNotice = beforeNotice;
+        _afterNotice = afterNotice;
+    }
+
+    public string Path { get; }
+
+    public Bitmap? Before
+    {
+        get => _before;
+        set => SetBitmap(ref _before, value, nameof(Before), nameof(HasBefore), nameof(ShowBeforeNotice), nameof(BeforeCaption));
+    }
+
+    public Bitmap? After
+    {
+        get => _after;
+        set => SetBitmap(ref _after, value, nameof(After), nameof(HasAfter), nameof(ShowAfterNotice), nameof(AfterCaption));
+    }
+
+    public string BeforeNotice
+    {
+        get => _beforeNotice;
+        set
+        {
+            if (_beforeNotice == value)
+                return;
+            _beforeNotice = value;
+            OnPropertyChanged(nameof(BeforeNotice));
+            OnPropertyChanged(nameof(ShowBeforeNotice));
+        }
+    }
+
+    public string AfterNotice
+    {
+        get => _afterNotice;
+        set
+        {
+            if (_afterNotice == value)
+                return;
+            _afterNotice = value;
+            OnPropertyChanged(nameof(AfterNotice));
+            OnPropertyChanged(nameof(ShowAfterNotice));
+        }
+    }
+
+    public bool HasBefore => _before is not null;
+
+    public bool HasAfter => _after is not null;
+
+    public bool ShowBeforeNotice => _before is null && _beforeNotice.Length > 0;
+
+    public bool ShowAfterNotice => _after is null && _afterNotice.Length > 0;
+
+    public string BeforeCaption => Caption("Before", _before);
+
+    public string AfterCaption => Caption("After", _after);
+
+    public void Release()
+    {
+        Before = null;
+        After = null;
+    }
+
+    private void SetBitmap(ref Bitmap? field, Bitmap? value, params string[] names)
+    {
+        if (ReferenceEquals(field, value))
+            return;
+        var old = field;
+        field = value;
+        foreach (var name in names)
+            OnPropertyChanged(name);
+        if (!ReferenceEquals(old, value))
+            old?.Dispose();
+    }
+
+    private static string Caption(string side, Bitmap? bitmap) =>
+        bitmap is null ? side : side + "  " + bitmap.PixelSize.Width.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            + "×" + bitmap.PixelSize.Height.ToString(System.Globalization.CultureInfo.InvariantCulture);
 }

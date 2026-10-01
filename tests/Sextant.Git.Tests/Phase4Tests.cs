@@ -314,6 +314,147 @@ public class Phase4Tests
         Assert.Equal(onDisk, File.ReadAllBytes(file));
     }
 
+    [Fact]
+    public async Task Image_preview_loads_both_versions()
+    {
+        using var repo = new TempRepo();
+        repo.Run("config", "core.autocrlf", "false");
+        var first = Convert.FromBase64String(PngBase64);
+        var second = (byte[])first.Clone();
+        second[^1] ^= 0x5A;
+        var path = Path.Combine(repo.Directory, "pic.png");
+        File.WriteAllBytes(path, first);
+        repo.CommitAll("image");
+        var parent = repo.RunCapture("rev-parse", "HEAD").Trim();
+        File.WriteAllBytes(path, second);
+
+        await using var session = await Open(repo);
+        var worktree = await session.PreviewImageAsync(
+            new ImageRequest("pic.png", "", null, false, true),
+            CancellationToken.None);
+        Assert.NotNull(worktree);
+        Assert.Equal(first, worktree.Before);
+        Assert.Equal(second, worktree.After);
+        Assert.Equal("", worktree.BeforeNotice);
+        Assert.Equal("", worktree.AfterNotice);
+
+        repo.CommitAll("image changed");
+        var head = repo.RunCapture("rev-parse", "HEAD").Trim();
+        var committed = await session.PreviewImageAsync(
+            new ImageRequest("pic.png", parent, head, false, false),
+            CancellationToken.None);
+        Assert.NotNull(committed);
+        Assert.Equal(first, committed.Before);
+        Assert.Equal(second, committed.After);
+    }
+
+    [Fact]
+    public async Task Image_pointer_preview_loads_both_versions_and_leaves_the_worktree()
+    {
+        var scriptDir = Path.Combine(Path.GetTempPath(), "sextant-script-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(scriptDir);
+        var scriptPath = Path.Combine(scriptDir, "smudge.ps1");
+        var scriptGit = scriptPath.Replace('\\', '/');
+        File.WriteAllBytes(scriptPath, Encoding.ASCII.GetBytes("""
+            $ms = New-Object System.IO.MemoryStream
+            [Console]::OpenStandardInput().CopyTo($ms)
+            $text = [Text.Encoding]::UTF8.GetString($ms.ToArray())
+            $b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+            $out = [Console]::OpenStandardOutput()
+            $bytes = [Convert]::FromBase64String($b64)
+            if ($text.Contains("size 8")) { $bytes[$bytes.Length - 1] = $bytes[$bytes.Length - 1] -bxor 0x5A }
+            $out.Write($bytes, 0, $bytes.Length)
+            $out.Flush()
+            """));
+        try
+        {
+            using var repo = new TempRepo();
+            repo.Run("config", "core.autocrlf", "false");
+            repo.Run("config", "filter.img.smudge", "powershell -NoProfile -ExecutionPolicy Bypass -File " + scriptGit);
+            repo.Run("config", "filter.img.required", "false");
+            repo.WriteFile(".gitattributes", "*.png filter=img -text\n");
+            var small = Convert.FromBase64String(PngBase64);
+            var changed = (byte[])small.Clone();
+            changed[^1] ^= 0x5A;
+            repo.WriteFile("pic.png", Pointer('a', 4));
+            repo.CommitAll("pointer");
+            var parent = repo.RunCapture("rev-parse", "HEAD").Trim();
+            repo.WriteFile("pic.png", Pointer('b', 8));
+            var file = Path.Combine(repo.Directory, "pic.png");
+            var onDisk = File.ReadAllBytes(file);
+
+            await using var session = await Open(repo);
+            var unstaged = await session.PreviewImageAsync(
+                new ImageRequest("pic.png", "", null, false, true),
+                CancellationToken.None);
+            Assert.NotNull(unstaged);
+            Assert.Equal(small, unstaged.Before);
+            Assert.Equal(changed, unstaged.After);
+            Assert.Equal("", unstaged.BeforeNotice);
+            Assert.Equal("", unstaged.AfterNotice);
+            Assert.Equal(onDisk, File.ReadAllBytes(file));
+
+            repo.CommitAll("pointer changed");
+            var head = repo.RunCapture("rev-parse", "HEAD").Trim();
+            var committed = await session.PreviewImageAsync(
+                new ImageRequest("pic.png", parent, head, false, false),
+                CancellationToken.None);
+            Assert.NotNull(committed);
+            Assert.Equal(small, committed.Before);
+            Assert.Equal(changed, committed.After);
+            Assert.Equal("", committed.BeforeNotice);
+            Assert.Equal("", committed.AfterNotice);
+            Assert.StartsWith("version https://git-lfs", Encoding.UTF8.GetString(File.ReadAllBytes(file)), StringComparison.Ordinal);
+            Assert.Contains(session.Snapshot().Commands, command => command.Arguments.Contains("--filters"));
+        }
+        finally
+        {
+            try
+            {
+                if (Directory.Exists(scriptDir))
+                    Directory.Delete(scriptDir, recursive: true);
+            }
+            catch (IOException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+        }
+    }
+
+    [Fact]
+    public async Task Image_pointer_over_cap_does_not_smudge()
+    {
+        using var repo = new TempRepo();
+        repo.Run("config", "core.autocrlf", "false");
+        repo.WriteFile(".gitattributes", "*.png filter=lfs diff=lfs merge=lfs -text\n");
+        var huge = HistoryLimits.MaxPreviewBytes + 1;
+        repo.WriteFile("pic.png", Pointer('c', huge));
+        repo.CommitAll("huge pointer");
+        var head = repo.RunCapture("rev-parse", "HEAD").Trim();
+        var file = Path.Combine(repo.Directory, "pic.png");
+        var onDisk = File.ReadAllBytes(file);
+
+        await using var session = await Open(repo);
+        var before = session.Snapshot().Commands.Count;
+        var preview = await session.PreviewImageAsync(
+            new ImageRequest("pic.png", head, null, false, true),
+            CancellationToken.None);
+        Assert.NotNull(preview);
+        Assert.Null(preview.Before);
+        Assert.Null(preview.After);
+        Assert.Contains("8 MB", preview.BeforeNotice, StringComparison.Ordinal);
+        Assert.Contains("8 MB", preview.AfterNotice, StringComparison.Ordinal);
+        var added = session.Snapshot().Commands.Skip(before);
+        Assert.DoesNotContain(added, command => command.Arguments.Contains("--filters"));
+        Assert.DoesNotContain(added, command => command.Arguments.Contains("lfs"));
+        Assert.Equal(onDisk, File.ReadAllBytes(file));
+    }
+
+    private static string Pointer(char oid, long size) =>
+        "version https://git-lfs.github.com/spec/v1\noid sha256:" + new string(oid, 64) + "\nsize " + size.ToString(System.Globalization.CultureInfo.InvariantCulture) + "\n";
+
     private static Task<RepositorySession> Open(TempRepo repo) =>
         RepositorySession.OpenAsync(new GitProcessRunner(), repo.Git, repo.Directory, CancellationToken.None);
 

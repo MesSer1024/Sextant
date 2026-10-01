@@ -473,6 +473,15 @@ public static class GitCommands
     public static IReadOnlyList<string> CatFileFiltered(string toplevel, string spec) =>
         ["-C", toplevel, "cat-file", "--filters", spec];
 
+    public static IReadOnlyList<string> HashObject(string toplevel) =>
+        ["-C", toplevel, "hash-object", "-w", "--stdin"];
+
+    public static IReadOnlyList<string> CatFileFilteredPath(string toplevel, string path, string objectId)
+    {
+        var gitPath = path.Replace('\\', '/');
+        return ["-C", toplevel, "cat-file", "--filters", "--path=" + gitPath, objectId];
+    }
+
     public static IReadOnlyList<string> LfsSmudge(string toplevel) =>
         ["-C", toplevel, "lfs", "smudge"];
 
