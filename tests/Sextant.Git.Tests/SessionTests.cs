@@ -372,6 +372,45 @@ public class SessionTests
     }
 
     [Fact]
+    public async Task Accepted_performance_keys_are_in_local_config_on_reopen()
+    {
+        using var repo = new TempRepo();
+        try
+        {
+            await using (var session = await Open(repo))
+            {
+                await session.SetLocalConfigsAsync(
+                    [("feature.manyFiles", "true"), ("core.fsmonitor", "true")],
+                    CancellationToken.None);
+                var state = session.Snapshot();
+                Assert.Equal("true", state.Config["feature.manyfiles"]);
+                Assert.Equal("true", state.Config["core.fsmonitor"]);
+                Assert.Null(PerformanceAdvisor.Evaluate(TimeSpan.FromSeconds(2), state.Config));
+            }
+
+            Assert.Equal("true", repo.RunCapture("config", "--local", "--get", "feature.manyFiles").Trim());
+            Assert.Equal("true", repo.RunCapture("config", "--local", "--get", "core.fsmonitor").Trim());
+
+            await using var again = await Open(repo);
+            var reopened = again.Snapshot();
+            Assert.Equal("true", reopened.Config["feature.manyfiles"]);
+            Assert.Equal("true", reopened.Config["core.fsmonitor"]);
+            Assert.Null(reopened.Suggestion);
+            Assert.Null(PerformanceAdvisor.Evaluate(TimeSpan.FromSeconds(2), reopened.Config));
+        }
+        finally
+        {
+            try
+            {
+                repo.Run("fsmonitor--daemon", "stop");
+            }
+            catch (InvalidOperationException)
+            {
+            }
+        }
+    }
+
+    [Fact]
     public async Task Cancelling_the_runner_kills_the_process()
     {
         var runner = new GitProcessRunner();

@@ -574,15 +574,41 @@ public sealed class RepositorySession : IAsyncDisposable
     }
 
     public Task SetLocalConfigAsync(string key, string value, CancellationToken cancellationToken) =>
+        SetLocalConfigsAsync([(key, value)], cancellationToken);
+
+    public Task SetLocalConfigsAsync(
+        IReadOnlyList<(string Key, string Value)> settings,
+        CancellationToken cancellationToken) =>
         RunAsync(async ct =>
         {
-            await _scheduler.WriteAsync(async token =>
+            GitCommandFailedException? failure = null;
+            try
             {
-                Checked(await ExecuteAsync(GitCommands.SetLocal(_toplevel, key, value), null, token).ConfigureAwait(false));
-                return 0;
-            }, ct).ConfigureAwait(false);
-            await ReloadConfigAsync(ct).ConfigureAwait(false);
-            await LoadRefsAndMaybeHistoryAsync(ct, statusAlreadyApplied: false).ConfigureAwait(false);
+                await _scheduler.WriteAsync(async token =>
+                {
+                    foreach (var (key, value) in settings)
+                        Checked(await ExecuteAsync(GitCommands.SetLocal(_toplevel, key, value), null, token).ConfigureAwait(false));
+                    return 0;
+                }, ct).ConfigureAwait(false);
+            }
+            catch (GitCommandFailedException exception)
+            {
+                failure = exception;
+            }
+
+            // Reload even when a later key is rejected, so a key that did land
+            // is what the next status and the next open both see.
+            try
+            {
+                await ReloadConfigAsync(ct).ConfigureAwait(false);
+                await LoadRefsAndMaybeHistoryAsync(ct, statusAlreadyApplied: false).ConfigureAwait(false);
+            }
+            catch (GitCommandFailedException) when (failure is not null)
+            {
+            }
+
+            if (failure is not null)
+                throw failure;
         }, cancellationToken);
 
     public async ValueTask DisposeAsync()

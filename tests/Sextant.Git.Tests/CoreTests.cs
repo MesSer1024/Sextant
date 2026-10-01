@@ -127,6 +127,9 @@ public class CoreTests
         Assert.False(suggestion.Value.ManyFiles);
         Assert.True(suggestion.Value.FileSystemMonitor);
         Assert.Null(PerformanceAdvisor.Evaluate(TimeSpan.FromMilliseconds(10), config));
+
+        config["core.fsmonitor"] = "true";
+        Assert.Null(PerformanceAdvisor.Evaluate(TimeSpan.FromSeconds(2), config));
     }
 
     [Fact]

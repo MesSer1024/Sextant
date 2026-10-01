@@ -22,6 +22,7 @@ public partial class RepositoryViewModel : ViewModelBase
     private Task? _load;
     private bool _applying;
     private bool _askedPerformance;
+    private int _holdFocusRefresh;
     private bool _watcherFailed;
     private bool _loadingMore;
     private int _historyGeneration;
@@ -206,7 +207,9 @@ public partial class RepositoryViewModel : ViewModelBase
 
     public Task RefreshFromFocusAsync()
     {
-        if (_session is null || IsBusy)
+        // The speed-up dialog closes by activating this window. That activation
+        // must not start a refresh that takes IsBusy and drops the config write.
+        if (_session is null || IsBusy || _holdFocusRefresh > 0)
             return Task.CompletedTask;
         return Refresh();
     }
@@ -594,13 +597,57 @@ public partial class RepositoryViewModel : ViewModelBase
         if (suggestion is null)
             return;
         _askedPerformance = true;
-        var choice = await _host.Dialogs.ConfirmPerformanceAsync(suggestion.Value);
-        if (choice is null || _session is null)
+        _holdFocusRefresh++;
+        try
+        {
+            var choice = await _host.Dialogs.ConfirmPerformanceAsync(suggestion.Value);
+            if (choice is null || _session is null)
+                return;
+            if (!choice.ManyFiles && !choice.FileSystemMonitor)
+                return;
+            var settings = new List<(string Key, string Value)>(2);
+            if (choice.ManyFiles)
+                settings.Add(("feature.manyFiles", "true"));
+            if (choice.FileSystemMonitor)
+                settings.Add(("core.fsmonitor", "true"));
+            await ApplyPerformanceAsync(settings);
+        }
+        finally
+        {
+            _holdFocusRefresh--;
+        }
+    }
+
+    private async Task ApplyPerformanceAsync(List<(string Key, string Value)> settings)
+    {
+        if (_session is null)
             return;
-        if (choice.ManyFiles)
-            await RunAsync("Writing config…", ct => _session.SetLocalConfigAsync("feature.manyFiles", "true", ct));
-        if (choice.FileSystemMonitor && _session is not null)
-            await RunAsync("Writing config…", ct => _session.SetLocalConfigAsync("core.fsmonitor", "true", ct));
+
+        // RunAsync refuses to start while a refresh owns IsBusy. The accepted
+        // keys still have to reach this repository's local config.
+        if (!IsBusy)
+        {
+            await RunAsync("Writing config…", ct => _session.SetLocalConfigsAsync(settings, ct));
+            return;
+        }
+
+        try
+        {
+            await _session.SetLocalConfigsAsync(settings, _lifetime.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+        catch (GitCommandFailedException exception)
+        {
+            Fail(exception.Message);
+        }
+
+        if (_session is null || _lifetime.IsCancellationRequested || IsBusy)
+            return;
+        Apply(_session.Snapshot());
+        await LoadDetailsAsync();
     }
 
     private async Task<bool> RunAsync(string label, Func<CancellationToken, Task> action)
