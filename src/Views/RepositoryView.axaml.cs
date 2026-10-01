@@ -4,6 +4,7 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using Sextant;
 using Sextant.ViewModels;
 using System.ComponentModel;
 
@@ -255,8 +256,7 @@ public partial class RepositoryView : UserControl
 
     private void OnCommitKeyDown(object? sender, KeyEventArgs e)
     {
-        if (e.Key == Key.Enter && (e.KeyModifiers.HasFlag(KeyModifiers.Control) || e.KeyModifiers.HasFlag(KeyModifiers.Meta))
-            && DataContext is RepositoryViewModel vm)
+        if (AppGestures.Matches(e, Key.Enter) && DataContext is RepositoryViewModel vm)
         {
             vm.CommitCommand.Execute(null);
             e.Handled = true;

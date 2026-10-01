@@ -1,0 +1,41 @@
+<Project>
+  <!--
+    On macOS the built app has to be a bundle. dotnet run launches the apphost, so that
+    binary lives in Sextant.app/Contents/MacOS and the Dock icon comes from the icns.
+    A publish whose output directory was passed with -o is wrapped by stamp-mac-app.sh.
+  -->
+  <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('OSX')) and ('$(RuntimeIdentifier)' == '' or $(RuntimeIdentifier.StartsWith('osx')))">
+    <UseAppHost>true</UseAppHost>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('OSX')) and '$(RuntimeIdentifier)' == ''">
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <OutputPath>bin\$(Configuration)\Sextant.app\Contents\MacOS\</OutputPath>
+    <PublishDir>bin\$(Configuration)\Sextant.app\Contents\MacOS\</PublishDir>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('OSX')) and $(RuntimeIdentifier.StartsWith('osx'))">
+    <PublishDir>bin\$(Configuration)\$(RuntimeIdentifier)\Sextant.app\Contents\MacOS\</PublishDir>
+  </PropertyGroup>
+
+  <Target Name="GenerateSextantIcns"
+          Inputs="$(MSBuildThisFileDirectory)Assets\sextant.png"
+          Outputs="$(IntermediateOutputPath)sextant.icns"
+          Condition="$([MSBuild]::IsOSPlatform('OSX'))">
+    <Exec Command="bash &quot;$(MSBuildThisFileDirectory)tools/make-icns.sh&quot; &quot;$(MSBuildThisFileDirectory)Assets\sextant.png&quot; &quot;$(IntermediateOutputPath)sextant.icns&quot;" />
+  </Target>
+
+  <Target Name="StampMacDevBundle"
+          AfterTargets="Build"
+          DependsOnTargets="GenerateSextantIcns"
+          Condition="$([MSBuild]::IsOSPlatform('OSX')) and '$(RuntimeIdentifier)' == ''">
+    <Exec Command="bash &quot;$(MSBuildThisFileDirectory)tools/stamp-mac-app.sh&quot; &quot;$([System.IO.Path]::GetFullPath('$(OutputPath)'))&quot; &quot;$([System.IO.Path]::GetFullPath('$(IntermediateOutputPath)sextant.icns'))&quot; &quot;$(MSBuildThisFileDirectory)Info.plist&quot;" />
+  </Target>
+
+  <Target Name="StampMacPublishBundle"
+          AfterTargets="Publish"
+          DependsOnTargets="GenerateSextantIcns"
+          Condition="$([MSBuild]::IsOSPlatform('OSX')) and ($(RuntimeIdentifier.StartsWith('osx')) or '$(RuntimeIdentifier)' == '')">
+    <Exec Command="bash &quot;$(MSBuildThisFileDirectory)tools/stamp-mac-app.sh&quot; &quot;$([System.IO.Path]::GetFullPath('$(PublishDir)'))&quot; &quot;$([System.IO.Path]::GetFullPath('$(IntermediateOutputPath)sextant.icns'))&quot; &quot;$(MSBuildThisFileDirectory)Info.plist&quot;" />
+  </Target>
+</Project>

@@ -284,6 +284,8 @@ public class SessionTests
         repo.CommitAll("first");
         var hook = Path.Combine(repo.Directory, ".empty-hooks", "pre-commit");
         File.WriteAllText(hook, "#!/bin/sh\nexit 1\n", new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        if (!OperatingSystem.IsWindows())
+            File.SetUnixFileMode(hook, UnixFileMode.UserRead | UnixFileMode.UserExecute);
         repo.WriteFile("a.txt", "two\n");
         await using var session = await Open(repo);
         await session.StageFileAsync("a.txt", CancellationToken.None);

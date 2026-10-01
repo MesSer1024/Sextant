@@ -2,6 +2,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.VisualTree;
+using Sextant;
 using Sextant.Services;
 using Sextant.ViewModels;
 using System.ComponentModel;
@@ -13,6 +14,10 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        OpenRepositoryItem.InputGesture = AppGestures.CommandKey(Key.O);
+        BranchMenuItem.InputGesture = AppGestures.CommandKey(Key.B);
+        StashMenuItem.InputGesture = AppGestures.CommandKey(Key.S, KeyModifiers.Shift);
+        SearchMenuItem.InputGesture = AppGestures.CommandKey(Key.F);
         AddHandler(KeyDownEvent, OnTunnelKey, RoutingStrategies.Tunnel);
         Activated += (_, _) => (DataContext as MainViewModel)?.OnWindowActivated();
     }
@@ -54,17 +59,14 @@ public partial class MainWindow : Window
     {
         if (DataContext is not MainViewModel vm)
             return;
-        var ctrl = e.KeyModifiers.HasFlag(KeyModifiers.Control) || e.KeyModifiers.HasFlag(KeyModifiers.Meta);
-        var shift = e.KeyModifiers.HasFlag(KeyModifiers.Shift);
-        var alt = e.KeyModifiers.HasFlag(KeyModifiers.Alt);
-        if (ctrl && !shift && !alt && e.Key == Key.P)
+        if (AppGestures.Matches(e, Key.P))
         {
             vm.TogglePalette();
             e.Handled = true;
             return;
         }
 
-        if (ctrl && !shift && !alt && e.Key == Key.O)
+        if (AppGestures.Matches(e, Key.O))
         {
             if (vm.CanUseGit)
                 vm.OpenFolderCommand.Execute(null);
@@ -72,14 +74,14 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (ctrl && !shift && !alt && e.Key == Key.F && vm.ActiveTab is { } searchTab)
+        if (AppGestures.Matches(e, Key.F) && vm.ActiveTab is { } searchTab)
         {
             searchTab.ToggleHistorySearchCommand.Execute(null);
             e.Handled = true;
             return;
         }
 
-        if (ctrl && !shift && !alt && e.Key == Key.B && vm.ActiveTab is { } branchTab)
+        if (AppGestures.Matches(e, Key.B) && vm.ActiveTab is { } branchTab)
         {
             if (branchTab.CanRunCommands)
                 branchTab.CreateBranchCommand.Execute(null);
@@ -87,7 +89,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (ctrl && shift && !alt && e.Key == Key.S && vm.ActiveTab is { } stashTab)
+        if (AppGestures.Matches(e, Key.S, KeyModifiers.Shift) && vm.ActiveTab is { } stashTab)
         {
             if (stashTab.CanRunCommands)
                 stashTab.StashCommand.Execute(null);
@@ -102,7 +104,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (ctrl && !shift && !alt && e.Key == Key.W)
+        if (AppGestures.Matches(e, Key.W))
         {
             if (vm.PaletteOpen)
                 vm.ClosePalette();
@@ -112,7 +114,8 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (ctrl && !shift && !alt && e.Key == Key.Tab)
+        // Command+Tab is the macOS application switcher, so next tab is Control+Tab everywhere.
+        if (e.Key == Key.Tab && e.KeyModifiers == KeyModifiers.Control)
         {
             vm.NextTab();
             e.Handled = true;
