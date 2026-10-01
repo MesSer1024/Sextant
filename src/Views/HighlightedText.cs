@@ -82,8 +82,15 @@ public class HighlightedText : CopyableText
             }
 
             PlainLength = text.Length;
-            var inlines = Inlines ?? new InlineCollection();
-            inlines.Clear();
+            // InlineCollection.Add copies TextBlock.Text into a leading plain Run when the
+            // collection is already hosted. A plain pass, or a recycled row, leaves that text
+            // set, so the same line is drawn twice: once with no color and once highlighted.
+            if (Inlines is { Count: > 0 })
+                Inlines.Clear();
+            if (Text is not null)
+                Text = null;
+
+            var inlines = new InlineCollection();
             var dark = ActualThemeVariant == ThemeVariant.Dark;
             foreach (var span in spans)
             {
@@ -95,8 +102,7 @@ public class HighlightedText : CopyableText
                 inlines.Add(run);
             }
 
-            if (!ReferenceEquals(Inlines, inlines))
-                Inlines = inlines;
+            Inlines = inlines;
         }
         finally
         {
