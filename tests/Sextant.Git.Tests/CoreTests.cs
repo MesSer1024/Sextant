@@ -46,6 +46,7 @@ public class CoreTests
         Assert.Equal(["-C", "repo", "branch", "-d", "topic"], GitCommands.DeleteBranch("repo", "topic"));
         Assert.Equal(["-C", "repo", "branch", "-D", "topic"], GitCommands.ForceDeleteBranch("repo", "topic"));
         Assert.Contains("--no-edit", GitCommands.Merge("repo", "topic"));
+        Assert.Equal(["-C", "repo", "rebase", "topic"], GitCommands.Rebase("repo", "topic"));
         Assert.Contains("--no-edit", GitCommands.Pull("repo"));
         Assert.Contains("--rebase", GitCommands.Pull("repo"));
         Assert.DoesNotContain("--no-verify", GitCommands.Push("repo"));

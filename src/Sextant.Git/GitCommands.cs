@@ -364,6 +364,9 @@ public static class GitCommands
     public static IReadOnlyList<string> Merge(string toplevel, string branch) =>
         ["-C", toplevel, "merge", "--no-edit", branch];
 
+    public static IReadOnlyList<string> Rebase(string toplevel, string branch) =>
+        ["-C", toplevel, "rebase", branch];
+
     public static IReadOnlyList<string> AbortMerge(string toplevel) =>
         ["-C", toplevel, "merge", "--abort"];
 

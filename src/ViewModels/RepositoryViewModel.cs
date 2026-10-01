@@ -175,6 +175,8 @@ public partial class RepositoryViewModel : ViewModelBase
 
     public bool CanMergeLocation => SelectedLocation?.ShowMerge == true;
 
+    public bool CanRebaseLocation => SelectedLocation?.ShowRebase == true;
+
     public bool CanDeleteLocation => SelectedLocation?.ShowDelete == true;
 
     public bool CanUpstreamLocation => SelectedLocation?.ShowSetUpstream == true;
@@ -420,6 +422,14 @@ public partial class RepositoryViewModel : ViewModelBase
     }
 
     [RelayCommand]
+    private Task RebaseSelected()
+    {
+        if (SelectedLocation?.ShowRebase == true)
+            SelectedLocation.RebaseCommand.Execute(null);
+        return Task.CompletedTask;
+    }
+
+    [RelayCommand]
     private Task DeleteSelected()
     {
         if (SelectedLocation?.ShowDelete == true)
@@ -491,6 +501,7 @@ public partial class RepositoryViewModel : ViewModelBase
     {
         OnPropertyChanged(nameof(CanCheckoutLocation));
         OnPropertyChanged(nameof(CanMergeLocation));
+        OnPropertyChanged(nameof(CanRebaseLocation));
         OnPropertyChanged(nameof(CanDeleteLocation));
         OnPropertyChanged(nameof(CanUpstreamLocation));
         OnPropertyChanged(nameof(CanRevealLocation));
@@ -1052,6 +1063,7 @@ public partial class RepositoryViewModel : ViewModelBase
         RememberCollapsed();
         _locationRoots.Clear();
 
+        var head = HeadLabel(state.Branch);
         var branches = new List<LocationItem>();
         foreach (var branch in state.Refs.Where(reference => reference.Name.StartsWith("refs/heads/", StringComparison.Ordinal))
                      .OrderBy(reference => reference.Name, StringComparer.Ordinal))
@@ -1066,11 +1078,15 @@ public partial class RepositoryViewModel : ViewModelBase
                 Oid = branch.Oid,
                 ShowCheckout = !current,
                 ShowMerge = !current,
+                ShowRebase = !current,
+                MergeLabel = $"Merge {name} into {head}",
+                RebaseLabel = $"Rebase {head} onto {name}",
                 ShowDelete = !current,
                 ShowSetUpstream = true,
                 ShowReveal = true,
                 CheckoutCommand = new AsyncRelayCommand(() => RunAsync("Checking out…", ct => Session.SwitchAsync(name, ct))),
                 MergeCommand = new AsyncRelayCommand(() => MergeNamedAsync(name)),
+                RebaseCommand = new AsyncRelayCommand(() => RebaseOntoAsync(name)),
                 DeleteCommand = new AsyncRelayCommand(() => DeleteNamedAsync(name)),
                 SetUpstreamCommand = new AsyncRelayCommand(() => SetUpstreamNamedAsync(name)),
                 RevealCommand = new AsyncRelayCommand(() => RevealAsync(branch.Oid)),
@@ -1096,9 +1112,13 @@ public partial class RepositoryViewModel : ViewModelBase
                     Oid = remote.Oid,
                     ShowCheckout = true,
                     ShowMerge = true,
+                    ShowRebase = true,
+                    MergeLabel = $"Merge {name} into {head}",
+                    RebaseLabel = $"Rebase {head} onto {name}",
                     ShowReveal = true,
                     CheckoutCommand = new AsyncRelayCommand(() => RunAsync("Checking out…", ct => Session.SwitchTrackAsync(name, ct))),
                     MergeCommand = new AsyncRelayCommand(() => MergeNamedAsync(name)),
+                    RebaseCommand = new AsyncRelayCommand(() => RebaseOntoAsync(name)),
                     RevealCommand = new AsyncRelayCommand(() => RevealAsync(remote.Oid)),
                 });
             }
@@ -1336,13 +1356,27 @@ public partial class RepositoryViewModel : ViewModelBase
     {
         if (_host.Dialogs is not { } dialogs || _session is null || IsBusy)
             return Task.CompletedTask;
-        var current = _session.Snapshot().Branch.HeadName ?? "HEAD";
+        var current = HeadLabel(_session.Snapshot().Branch);
         return HoldFocus(async () =>
         {
             var ok = await dialogs.ConfirmAsync("Merge", $"Merge {name} into {current}?", "Merge");
             if (!ok || _session is null)
                 return;
             await RunAsync("Merging…", ct => _session.MergeAsync(name, ct));
+        });
+    }
+
+    private Task RebaseOntoAsync(string name)
+    {
+        if (_host.Dialogs is not { } dialogs || _session is null || IsBusy)
+            return Task.CompletedTask;
+        var current = HeadLabel(_session.Snapshot().Branch);
+        return HoldFocus(async () =>
+        {
+            var ok = await dialogs.ConfirmAsync("Rebase", $"Rebase {current} onto {name}?", "Rebase");
+            if (!ok || _session is null)
+                return;
+            await RunAsync("Rebasing…", ct => _session.RebaseAsync(name, ct));
         });
     }
 
@@ -2083,6 +2117,9 @@ public partial class RepositoryViewModel : ViewModelBase
             parts.Add($"{unstaged} unstaged");
         return string.Join(", ", parts);
     }
+
+    private static string HeadLabel(BranchHeader branch) =>
+        branch.Detached || string.IsNullOrEmpty(branch.HeadName) ? "HEAD" : branch.HeadName;
 
     private static string DescribeBranch(BranchHeader branch)
     {

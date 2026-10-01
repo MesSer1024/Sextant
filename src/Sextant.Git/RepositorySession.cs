@@ -615,6 +615,17 @@ public sealed partial class RepositorySession : IAsyncDisposable
     public Task MergeAsync(string branch, CancellationToken cancellationToken) =>
         MutateAsync(GitCommands.Merge(_toplevel, branch), null, cancellationToken);
 
+    public Task RebaseAsync(string branch, CancellationToken cancellationToken)
+    {
+        // A conflict stops the rebase. `true` is the no-op editor, so git does not open one.
+        var environment = new Dictionary<string, string>
+        {
+            ["GIT_EDITOR"] = "true",
+            ["GIT_SEQUENCE_EDITOR"] = "true",
+        };
+        return MutateAsync(GitCommands.Rebase(_toplevel, branch), null, cancellationToken, environment: environment);
+    }
+
     public Task AbortMergeAsync(CancellationToken cancellationToken) =>
         MutateAsync(GitCommands.AbortMerge(_toplevel), null, cancellationToken);
 

@@ -91,6 +91,7 @@
                     <Button Content="Open" Command="{Binding OpenSelectedCommand}" IsVisible="{Binding CanOpenLocation}" Margin="0,0,4,4"/>
                     <Button Content="Checkout" Command="{Binding CheckoutSelectedCommand}" IsVisible="{Binding CanCheckoutLocation}" Margin="0,0,4,4"/>
                     <Button Content="Merge" Command="{Binding MergeSelectedCommand}" IsVisible="{Binding CanMergeLocation}" Margin="0,0,4,4"/>
+                    <Button Content="Rebase" Command="{Binding RebaseSelectedCommand}" IsVisible="{Binding CanRebaseLocation}" Margin="0,0,4,4"/>
                     <Button Content="Delete" Command="{Binding DeleteSelectedCommand}" IsVisible="{Binding CanDeleteLocation}" Margin="0,0,4,4"/>
                     <Button Content="Upstream" Command="{Binding UpstreamSelectedCommand}" IsVisible="{Binding CanUpstreamLocation}" Margin="0,0,4,4"/>
                     <Button Content="Show" Command="{Binding RevealSelectedCommand}" IsVisible="{Binding CanRevealLocation}" Margin="0,0,4,4"/>
@@ -133,7 +134,8 @@
                                         <ContextMenu Opening="OnMenuOpening">
                                             <MenuItem Header="Open" Command="{Binding OpenCommand}" IsVisible="{Binding ShowOpen}"/>
                                             <MenuItem Header="Checkout" Command="{Binding CheckoutCommand}" IsVisible="{Binding ShowCheckout}"/>
-                                            <MenuItem Header="Merge into HEAD" Command="{Binding MergeCommand}" IsVisible="{Binding ShowMerge}"/>
+                                            <MenuItem Header="{Binding MergeLabel}" Command="{Binding MergeCommand}" IsVisible="{Binding ShowMerge}"/>
+                                            <MenuItem Header="{Binding RebaseLabel}" Command="{Binding RebaseCommand}" IsVisible="{Binding ShowRebase}"/>
                                             <MenuItem Header="Delete" Command="{Binding DeleteCommand}" IsVisible="{Binding ShowDelete}"/>
                                             <MenuItem Header="Set upstream" Command="{Binding SetUpstreamCommand}" IsVisible="{Binding ShowSetUpstream}"/>
                                             <MenuItem Header="Show in graph" Command="{Binding RevealCommand}" IsVisible="{Binding ShowReveal}"/>

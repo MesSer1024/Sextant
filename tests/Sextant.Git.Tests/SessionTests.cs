@@ -210,6 +210,33 @@ public class SessionTests
     }
 
     [Fact]
+    public async Task Rebase_replays_the_current_branch_onto_the_named_branch()
+    {
+        using var repo = new TempRepo();
+        repo.WriteFile("a.txt", "base\n");
+        repo.CommitAll("base");
+        var main = repo.CurrentBranch();
+        repo.Run("switch", "-c", "feature");
+        repo.WriteFile("b.txt", "feature\n");
+        repo.CommitAll("feature");
+        repo.Run("switch", main);
+        repo.WriteFile("a.txt", "main\n");
+        repo.CommitAll("main");
+        repo.Run("switch", "feature");
+
+        await using var session = await Open(repo);
+        await session.RebaseAsync(main, CancellationToken.None);
+
+        var state = session.Snapshot();
+        Assert.Equal("feature", state.Branch.HeadName);
+        Assert.Equal(SequencerKind.None, state.Sequencer);
+        Assert.Equal("main\n", ReadNormalized(repo, "a.txt"));
+        Assert.Equal("feature\n", ReadNormalized(repo, "b.txt"));
+        repo.Run("merge-base", "--is-ancestor", main, "feature");
+        Assert.DoesNotContain("feature", repo.RunCapture("log", "--format=%s", main), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Push_and_pull_against_a_local_remote()
     {
         using var origin = new TempRepo();
@@ -464,6 +491,9 @@ public class SessionTests
 
     private static Task<RepositorySession> Open(TempRepo repo) =>
         RepositorySession.OpenAsync(new GitProcessRunner(), repo.Git, repo.Directory, CancellationToken.None);
+
+    private static string ReadNormalized(TempRepo repo, string relative) =>
+        File.ReadAllText(Path.Combine(repo.Directory, relative)).Replace("\r\n", "\n", StringComparison.Ordinal);
 
     private static void TryDelete(string path)
     {

@@ -125,6 +125,12 @@ public partial class LocationItem : ObservableObject
 
     public bool ShowMerge { get; init; }
 
+    public bool ShowRebase { get; init; }
+
+    public string MergeLabel { get; init; } = "";
+
+    public string RebaseLabel { get; init; } = "";
+
     public bool ShowDelete { get; init; }
 
     public bool ShowSetUpstream { get; init; }
@@ -146,6 +152,8 @@ public partial class LocationItem : ObservableObject
     public ICommand CheckoutCommand { get; init; } = UiCommands.Disabled;
 
     public ICommand MergeCommand { get; init; } = UiCommands.Disabled;
+
+    public ICommand RebaseCommand { get; init; } = UiCommands.Disabled;
 
     public ICommand DeleteCommand { get; init; } = UiCommands.Disabled;
 
