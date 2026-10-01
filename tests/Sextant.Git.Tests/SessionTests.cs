@@ -434,6 +434,41 @@ public class SessionTests
     }
 
     [Fact]
+    public async Task Delete_remote_branch_removes_it_from_the_remote()
+    {
+        using var repo = new TempRepo();
+        repo.WriteFile("a.txt", "base\n");
+        repo.CommitAll("base");
+        var trunk = repo.CurrentBranch();
+        var bare = Path.Combine(Path.GetTempPath(), "sextant-bare-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            repo.Run("clone", "--bare", repo.Directory, bare);
+            repo.Run("remote", "add", "origin", bare);
+            repo.Run("push", "-u", "origin", trunk);
+            repo.Run("switch", "-c", "side");
+            repo.WriteFile("b.txt", "side\n");
+            repo.CommitAll("side");
+            repo.Run("push", "-u", "origin", "side");
+            repo.Run("switch", trunk);
+
+            await using var session = await Open(repo);
+            Assert.False(await session.IsMergedIntoHeadAsync("origin/side", CancellationToken.None));
+            Assert.True(await session.IsMergedIntoHeadAsync("origin/" + trunk, CancellationToken.None));
+            await session.DeleteRemoteBranchAsync("origin", "side", null, CancellationToken.None);
+
+            var state = session.Snapshot();
+            Assert.DoesNotContain(state.Refs, reference => reference.Name == "refs/remotes/origin/side");
+            Assert.Contains(state.Refs, reference => reference.Name == "refs/remotes/origin/" + trunk);
+            Assert.DoesNotContain("refs/heads/side", repo.RunCapture("ls-remote", "--heads", bare), StringComparison.Ordinal);
+        }
+        finally
+        {
+            TryDelete(bare);
+        }
+    }
+
+    [Fact]
     public async Task Accepted_performance_keys_are_in_local_config_on_reopen()
     {
         using var repo = new TempRepo();

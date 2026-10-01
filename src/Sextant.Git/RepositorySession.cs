@@ -609,6 +609,21 @@ public sealed partial class RepositorySession : IAsyncDisposable
     public Task ForceDeleteBranchAsync(string name, CancellationToken cancellationToken) =>
         MutateAsync(GitCommands.ForceDeleteBranch(_toplevel, name), null, cancellationToken);
 
+    public Task DeleteRemoteBranchAsync(string remote, string branch, IProgress<string>? progress, CancellationToken cancellationToken) =>
+        MutateAsync(GitCommands.DeleteRemoteBranch(_toplevel, remote, branch), progress, cancellationToken);
+
+    public Task<bool> IsMergedIntoHeadAsync(string revision, CancellationToken cancellationToken) =>
+        RunAsync(async ct =>
+        {
+            var output = await _scheduler.ReadAsync(
+                inner => ExecuteAsync(GitCommands.NotInHeadCount(_toplevel, revision), null, inner),
+                ct).ConfigureAwait(false);
+            Track(output);
+            if (output.ExitCode != 0)
+                throw new GitCommandFailedException(output);
+            return _encoding.GetString(output.Stdout).Trim() == "0";
+        }, cancellationToken);
+
     public Task SetUpstreamAsync(string branch, string upstream, CancellationToken cancellationToken) =>
         MutateAsync(GitCommands.SetUpstream(_toplevel, branch, upstream), null, cancellationToken);
 

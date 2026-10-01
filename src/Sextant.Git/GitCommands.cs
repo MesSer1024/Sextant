@@ -358,6 +358,12 @@ public static class GitCommands
     public static IReadOnlyList<string> ForceDeleteBranch(string toplevel, string name) =>
         ["-C", toplevel, "branch", "-D", name];
 
+    public static IReadOnlyList<string> DeleteRemoteBranch(string toplevel, string remote, string branch) =>
+        ["-C", toplevel, "push", "--progress", remote, "--delete", branch];
+
+    public static IReadOnlyList<string> NotInHeadCount(string toplevel, string revision) =>
+        ["-C", toplevel, "--no-optional-locks", "rev-list", "--count", "HEAD.." + revision];
+
     public static IReadOnlyList<string> SetUpstream(string toplevel, string branch, string upstream) =>
         ["-C", toplevel, "branch", "--set-upstream-to=" + upstream, branch];
 

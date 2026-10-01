@@ -1101,24 +1101,27 @@ public partial class RepositoryViewModel : ViewModelBase
         foreach (var group in trackedRefs.GroupBy(reference => RemoteGroup(reference.Name)).OrderBy(group => group.Key, StringComparer.Ordinal))
         {
             var tracked = new List<LocationItem>();
+            var remoteName = group.Key;
             foreach (var remote in group.OrderBy(reference => reference.Name, StringComparer.Ordinal))
             {
                 var name = ShortRemote(remote.Name);
-                var label = name.Length > group.Key.Length + 1 ? name[(group.Key.Length + 1)..] : name;
+                var branchName = name.Length > remoteName.Length + 1 ? name[(remoteName.Length + 1)..] : name;
                 tracked.Add(new LocationItem
                 {
                     Key = "r:" + name,
-                    Label = label,
+                    Label = branchName,
                     Oid = remote.Oid,
                     ShowCheckout = true,
                     ShowMerge = true,
                     ShowRebase = true,
                     MergeLabel = $"Merge {name} into {head}",
                     RebaseLabel = $"Rebase {head} onto {name}",
+                    ShowDelete = true,
                     ShowReveal = true,
                     CheckoutCommand = new AsyncRelayCommand(() => RunAsync("Checking out…", ct => Session.SwitchTrackAsync(name, ct))),
                     MergeCommand = new AsyncRelayCommand(() => MergeNamedAsync(name)),
                     RebaseCommand = new AsyncRelayCommand(() => RebaseOntoAsync(name)),
+                    DeleteCommand = new AsyncRelayCommand(() => DeleteRemoteBranchAsync(remoteName, branchName)),
                     RevealCommand = new AsyncRelayCommand(() => RevealAsync(remote.Oid)),
                 });
             }
@@ -1410,6 +1413,46 @@ public partial class RepositoryViewModel : ViewModelBase
             if (!force || _session is null)
                 return;
             await RunAsync("Deleting branch…", ct => _session.ForceDeleteBranchAsync(name, ct));
+        });
+    }
+
+    private Task DeleteRemoteBranchAsync(string remote, string branch)
+    {
+        if (_host.Dialogs is not { } dialogs || _session is null || IsBusy)
+            return Task.CompletedTask;
+        var shown = remote + "/" + branch;
+        return HoldFocus(async () =>
+        {
+            var ok = await dialogs.ConfirmAsync("Delete branch", $"Delete {shown} from {remote}?", "Delete");
+            if (!ok || _session is null)
+                return;
+            bool merged;
+            try
+            {
+                merged = await _session.IsMergedIntoHeadAsync(shown, _lifetime.Token);
+            }
+            catch (GitCommandFailedException exception)
+            {
+                Fail(exception.Message);
+                return;
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+
+            if (!merged)
+            {
+                var force = await dialogs.ConfirmAsync(
+                    "Force delete branch",
+                    $"{shown} is not fully merged. Force delete removes it from {remote} anyway.",
+                    "Force delete");
+                if (!force || _session is null)
+                    return;
+            }
+
+            var progress = Progress();
+            await RunAsync("Deleting branch…", ct => _session.DeleteRemoteBranchAsync(remote, branch, progress, ct));
         });
     }
 
