@@ -3,22 +3,11 @@ using System.Text.Json.Serialization;
 
 namespace Sextant.Git;
 
-public sealed class PinnedRepository
-{
-    public string Path { get; set; } = "";
-
-    public string Name { get; set; } = "";
-}
-
 public sealed class WorkspaceState
 {
-    public List<PinnedRepository> Pins { get; set; } = [];
-
     public List<string> OpenTabs { get; set; } = [];
 
     public string? ActiveTab { get; set; }
-
-    public double PinsWidth { get; set; } = 220;
 
     public double LocationsWidth { get; set; } = 220;
 

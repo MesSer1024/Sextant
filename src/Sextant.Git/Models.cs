@@ -126,19 +126,6 @@ public sealed record CommandLogEntry(
     TimeSpan Duration,
     string StandardError);
 
-public sealed record RepoBadge(
-    bool Available,
-    string? Branch,
-    bool Detached,
-    bool Dirty,
-    bool Conflicted,
-    int Ahead,
-    int Behind,
-    string? Error)
-{
-    public static RepoBadge Failed(string error) => new(false, null, false, false, false, 0, 0, error);
-}
-
 public readonly record struct PerformanceSuggestion(bool ManyFiles, bool FileSystemMonitor);
 
 public sealed class SessionState

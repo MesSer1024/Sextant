@@ -22,8 +22,6 @@ public partial class MainWindow : Window
         base.OnOpened(e);
         if (DataContext is not MainViewModel vm)
             return;
-        if (vm.PinsWidth >= 160)
-            PinColumn.Width = new GridLength(vm.PinsWidth);
         vm.PropertyChanged += OnViewModelPropertyChanged;
         vm.Attach(new AvaloniaDialogService(this));
         _ = vm.InitializeAsync();
@@ -40,12 +38,8 @@ public partial class MainWindow : Window
         base.OnClosed(e);
     }
 
-    private ColumnDefinition PinColumn => Root.ColumnDefinitions[0];
-
     private void ReadWidths(MainViewModel vm)
     {
-        if (PinColumn.Width.GridUnitType == GridUnitType.Pixel && PinColumn.Width.Value >= 160)
-            vm.PinsWidth = PinColumn.Width.Value;
         foreach (var view in this.GetVisualDescendants().OfType<RepositoryView>())
             view.ReadWidths(vm);
     }
@@ -133,10 +127,4 @@ public partial class MainWindow : Window
     }
 
     private void OnPaletteCardPressed(object? sender, PointerPressedEventArgs e) => e.Handled = true;
-
-    private void OnMenuOpening(object? sender, CancelEventArgs e)
-    {
-        if (sender is ContextMenu menu && menu.PlacementTarget is Control target)
-            menu.DataContext = target.DataContext;
-    }
 }

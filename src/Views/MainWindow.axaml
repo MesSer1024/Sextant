@@ -27,35 +27,7 @@
             </DockPanel>
         </Border>
 
-        <Grid x:Name="Root" Grid.Row="2">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="220" MinWidth="160" MaxWidth="420"/>
-                <ColumnDefinition Width="4"/>
-                <ColumnDefinition Width="*"/>
-            </Grid.ColumnDefinitions>
-
-            <ListBox Grid.Column="0" Margin="8,8,4,8" ItemsSource="{Binding Pins}" SelectedItem="{Binding SelectedPin}">
-                    <ListBox.ItemTemplate>
-                        <DataTemplate x:DataType="vm:PinViewModel">
-                            <Border ToolTip.Tip="{Binding Path}">
-                                <Border.ContextMenu>
-                                    <ContextMenu Opening="OnMenuOpening">
-                                        <MenuItem Header="Open" Command="{Binding OpenCommand}"/>
-                                        <MenuItem Header="Unpin" Command="{Binding UnpinCommand}"/>
-                                    </ContextMenu>
-                                </Border.ContextMenu>
-                                <StackPanel Spacing="1">
-                                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
-                                    <TextBlock Text="{Binding Badge}" FontSize="11" Opacity="0.7" TextTrimming="CharacterEllipsis" TextWrapping="Wrap"/>
-                                </StackPanel>
-                            </Border>
-                        </DataTemplate>
-                    </ListBox.ItemTemplate>
-            </ListBox>
-
-            <GridSplitter Grid.Column="1" ResizeDirection="Columns"/>
-
-            <Grid Grid.Column="2" RowDefinitions="Auto,*">
+        <Grid Grid.Row="2" RowDefinitions="Auto,*">
                 <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
                     <ItemsControl ItemsSource="{Binding Tabs}">
                         <ItemsControl.ItemsPanel>
@@ -92,7 +64,6 @@
                         </StackPanel>
                     </StackPanel>
                 </Panel>
-            </Grid>
         </Grid>
 
         <Border Grid.Row="3" Padding="12,4" IsVisible="{Binding HasStatusText}">

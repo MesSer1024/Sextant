@@ -112,7 +112,7 @@ public class CoreTests
     }
 
     [Fact]
-    public void Workspace_round_trip_preserves_pins_and_tabs()
+    public void Workspace_round_trip_preserves_tabs_and_settings()
     {
         var directory = Path.Combine(Path.GetTempPath(), "sextant-ws-" + Guid.NewGuid().ToString("N"));
         try
@@ -122,9 +122,10 @@ public class CoreTests
             {
                 ActiveTab = @"C:\repos\sextant",
                 OpenTabs = [@"C:\repos\sextant", @"C:\repos\other"],
-                PinsWidth = 240,
+                LocationsWidth = 200,
+                GraphWidth = 480,
+                FilesHeight = 160,
             };
-            state.Pins.Add(new PinnedRepository { Path = @"C:\repos\sextant", Name = "sextant" });
             store.SaveWorkspace(state);
             store.SaveSettings(new AppSettings { GitExecutable = @"C:\git\git.exe", ReopenTabs = false });
 
@@ -132,10 +133,23 @@ public class CoreTests
             var settings = store.LoadSettings();
             Assert.Equal(@"C:\repos\sextant", loaded.ActiveTab);
             Assert.Equal(2, loaded.OpenTabs.Count);
-            Assert.Equal("sextant", loaded.Pins[0].Name);
-            Assert.Equal(240, loaded.PinsWidth);
+            Assert.Equal(200, loaded.LocationsWidth);
+            Assert.Equal(480, loaded.GraphWidth);
+            Assert.Equal(160, loaded.FilesHeight);
             Assert.Equal(@"C:\git\git.exe", settings.GitExecutable);
             Assert.False(settings.ReopenTabs);
+
+            File.WriteAllText(Path.Combine(directory, "workspace.json"), """
+                {
+                  "pins": [{ "path": "C:\\old", "name": "old" }],
+                  "pinsWidth": 240,
+                  "openTabs": ["C:\\repos\\kept"],
+                  "activeTab": "C:\\repos\\kept"
+                }
+                """);
+            var legacy = store.LoadWorkspace();
+            Assert.Equal(@"C:\repos\kept", legacy.ActiveTab);
+            Assert.Equal([@"C:\repos\kept"], legacy.OpenTabs);
         }
         finally
         {

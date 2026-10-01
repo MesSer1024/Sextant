@@ -1,4 +1,3 @@
-using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Sextant.Git;
@@ -12,13 +11,10 @@ public partial class MainViewModel : ViewModelBase, IWorkspaceHost
     private readonly WorkspaceStore _store;
     private readonly WorkspaceState _workspace;
     private readonly AppSettings _settings;
-    private readonly BadgeWorker _badges;
     private readonly CancellationTokenSource _lifetime = new();
     private readonly List<PaletteItem> _palette = [];
-    private PinViewModel[] _pinSnapshot = [];
     private Task? _initialize;
     private bool _started;
-    private int _pinSuppress;
     private int _shutDown;
 
     public MainViewModel(WorkspaceStore store, WorkspaceState workspace, AppSettings settings, GitProcessRunner runner)
@@ -27,26 +23,14 @@ public partial class MainViewModel : ViewModelBase, IWorkspaceHost
         _workspace = workspace;
         _settings = settings;
         Runner = runner;
-        _badges = new BadgeWorker(runner);
-        PinsWidth = workspace.PinsWidth;
         LocationsWidth = workspace.LocationsWidth;
         GraphWidth = workspace.GraphWidth;
         FilesHeight = workspace.FilesHeight;
-        foreach (var pin in workspace.Pins)
-        {
-            if (string.IsNullOrWhiteSpace(pin.Path))
-                continue;
-            Pins.Add(CreatePin(pin.Path, pin.Name));
-        }
-
-        PublishPins();
     }
 
     public GitProcessRunner Runner { get; }
 
     public IDialogService? Dialogs { get; private set; }
-
-    public ObservableCollection<PinViewModel> Pins { get; } = [];
 
     public ObservableCollection<RepositoryViewModel> Tabs { get; } = [];
 
@@ -54,9 +38,6 @@ public partial class MainViewModel : ViewModelBase, IWorkspaceHost
 
     [ObservableProperty]
     public partial RepositoryViewModel? ActiveTab { get; set; }
-
-    [ObservableProperty]
-    public partial PinViewModel? SelectedPin { get; set; }
 
     [ObservableProperty]
     public partial string? GitExecutable { get; set; }
@@ -88,8 +69,6 @@ public partial class MainViewModel : ViewModelBase, IWorkspaceHost
     [ObservableProperty]
     public partial PaletteItem? SelectedPalette { get; set; }
 
-    public double PinsWidth { get; set; }
-
     public double LocationsWidth { get; set; }
 
     public double GraphWidth { get; set; }
@@ -112,7 +91,6 @@ public partial class MainViewModel : ViewModelBase, IWorkspaceHost
     {
         if (!_started)
             return;
-        _badges.Pulse();
         if (ActiveTab is { IsReady: true } tab)
             _ = tab.RefreshFromFocusAsync();
     }
@@ -135,7 +113,6 @@ public partial class MainViewModel : ViewModelBase, IWorkspaceHost
             other.IsActive = other == tab;
         ActiveTab = tab;
         TitleText = $"Sextant — {tab.Title}";
-        SelectPinFor(tab);
         _ = tab.EnsureLoadedAsync();
         Save();
     }
@@ -153,7 +130,6 @@ public partial class MainViewModel : ViewModelBase, IWorkspaceHost
             {
                 ActiveTab = null;
                 TitleText = "Sextant";
-                SetSelectedPin(null);
             }
             else
             {
@@ -167,48 +143,17 @@ public partial class MainViewModel : ViewModelBase, IWorkspaceHost
 
     public void NoteLoaded(RepositoryViewModel tab)
     {
-        if (tab.Toplevel is not { Length: > 0 } toplevel)
+        if (tab.Toplevel is not { Length: > 0 })
             return;
-        var changed = false;
-        foreach (var pin in Pins.ToArray())
-        {
-            var matches = RepoPath.Same(pin.Path, tab.RequestedPath) || RepoPath.Same(pin.Path, toplevel);
-            if (!matches)
-                continue;
-            if (!RepoPath.Same(pin.Path, toplevel))
-            {
-                pin.Path = toplevel;
-                changed = true;
-            }
-
-            if (pin.Name != tab.Title && tab.Title.Length > 0)
-            {
-                pin.Name = tab.Title;
-                changed = true;
-            }
-        }
-
-        var duplicates = Pins.Where(pin => RepoPath.Same(pin.Path, toplevel)).Skip(1).ToArray();
-        foreach (var duplicate in duplicates)
-        {
-            Pins.Remove(duplicate);
-            changed = true;
-        }
-
         if (ActiveTab == tab)
             TitleText = $"Sextant — {tab.Title}";
-        if (!changed)
-            return;
-        PublishPins();
         Save();
     }
 
     public void Save()
     {
-        _workspace.Pins = Pins.Select(pin => new PinnedRepository { Path = pin.Path, Name = pin.Name }).ToList();
         _workspace.OpenTabs = Tabs.Select(tab => tab.Toplevel ?? tab.RequestedPath).ToList();
         _workspace.ActiveTab = ActiveTab is null ? null : ActiveTab.Toplevel ?? ActiveTab.RequestedPath;
-        _workspace.PinsWidth = PinsWidth;
         _workspace.LocationsWidth = LocationsWidth;
         _workspace.GraphWidth = GraphWidth;
         _workspace.FilesHeight = FilesHeight;
@@ -298,15 +243,6 @@ public partial class MainViewModel : ViewModelBase, IWorkspaceHost
         OnPropertyChanged(nameof(ShowEmpty));
     }
 
-    partial void OnSelectedPinChanged(PinViewModel? value)
-    {
-        if (_pinSuppress > 0 || value is null)
-            return;
-        if (ActiveTab is not null && SameTab(ActiveTab, value.Path))
-            return;
-        _ = OpenPathAsync(value.Path, pin: false);
-    }
-
     partial void OnPaletteQueryChanged(string value) => FilterPalette();
 
     private async Task InitializeCoreAsync()
@@ -331,8 +267,6 @@ public partial class MainViewModel : ViewModelBase, IWorkspaceHost
         }
 
         _started = true;
-        _badges.Pulse();
-        _ = ObserveBadgesAsync();
     }
 
     private async Task ProbeAsync()
@@ -382,10 +316,10 @@ public partial class MainViewModel : ViewModelBase, IWorkspaceHost
         var path = await Dialogs.PickFolderAsync("Open repository");
         if (string.IsNullOrWhiteSpace(path))
             return;
-        await OpenPathAsync(path, pin: true);
+        await OpenPathAsync(path);
     }
 
-    private async Task OpenPathAsync(string path, bool pin)
+    private async Task OpenPathAsync(string path)
     {
         if (!GitReady || GitExecutable is null)
             return;
@@ -399,8 +333,6 @@ public partial class MainViewModel : ViewModelBase, IWorkspaceHost
         if (existing is not null)
         {
             Activate(existing);
-            if (pin)
-                Pin(existing);
             return;
         }
 
@@ -417,16 +349,11 @@ public partial class MainViewModel : ViewModelBase, IWorkspaceHost
             {
                 Close(tab);
                 Activate(duplicate);
-                if (pin)
-                    Pin(duplicate);
                 return;
             }
         }
 
-        if (pin && tab.Toplevel is not null)
-            Pin(tab);
-        else
-            Save();
+        Save();
     }
 
     private async Task CloneAsync()
@@ -447,7 +374,7 @@ public partial class MainViewModel : ViewModelBase, IWorkspaceHost
         {
             await RepositoryAdmin.CloneAsync(Runner, GitExecutable, request.Url, request.Destination, progress, _lifetime.Token);
             StatusText = "";
-            await OpenPathAsync(request.Destination, pin: true);
+            await OpenPathAsync(request.Destination);
         }
         catch (OperationCanceledException)
         {
@@ -476,7 +403,7 @@ public partial class MainViewModel : ViewModelBase, IWorkspaceHost
         {
             await RepositoryAdmin.InitAsync(Runner, GitExecutable, path, _lifetime.Token);
             StatusText = "";
-            await OpenPathAsync(path, pin: true);
+            await OpenPathAsync(path);
         }
         catch (OperationCanceledException)
         {
@@ -523,45 +450,6 @@ public partial class MainViewModel : ViewModelBase, IWorkspaceHost
             SetGitProblem(exception.Message);
         }
     }
-
-    private void Pin(RepositoryViewModel tab)
-    {
-        var path = tab.Toplevel ?? tab.RequestedPath;
-        if (Pins.Any(pin => RepoPath.Same(pin.Path, path)))
-            return;
-        var name = string.IsNullOrWhiteSpace(tab.Title) ? System.IO.Path.GetFileName(path) : tab.Title;
-        Pins.Add(CreatePin(path, name));
-        PublishPins();
-        SelectPinFor(tab);
-        Save();
-    }
-
-    private void Unpin(PinViewModel pin)
-    {
-        Pins.Remove(pin);
-        if (SelectedPin == pin)
-            SetSelectedPin(null);
-        PublishPins();
-        Save();
-    }
-
-    private PinViewModel CreatePin(string path, string name) =>
-        new(path, name, item => OpenPathAsync(item.Path, pin: false), Unpin);
-
-    private void SelectPinFor(RepositoryViewModel tab)
-    {
-        var path = tab.Toplevel ?? tab.RequestedPath;
-        SetSelectedPin(Pins.FirstOrDefault(pin => RepoPath.Same(pin.Path, path)));
-    }
-
-    private void SetSelectedPin(PinViewModel? pin)
-    {
-        _pinSuppress++;
-        SelectedPin = pin;
-        _pinSuppress--;
-    }
-
-    private void PublishPins() => _pinSnapshot = Pins.ToArray();
 
     private static bool SameTab(RepositoryViewModel tab, string path)
     {
@@ -623,21 +511,5 @@ public partial class MainViewModel : ViewModelBase, IWorkspaceHost
         }
 
         SelectedPalette = PaletteMatches.FirstOrDefault();
-    }
-
-    private async Task ObserveBadgesAsync()
-    {
-        try
-        {
-            await _badges.RunAsync(
-                () => _pinSnapshot,
-                () => ActiveTab,
-                () => GitExecutable,
-                (pin, badge) => Dispatcher.UIThread.Post(() => pin.ApplyBadge(badge)),
-                _lifetime.Token);
-        }
-        catch (OperationCanceledException)
-        {
-        }
     }
 }
