@@ -240,27 +240,33 @@ public partial class RepositoryViewModel
     private Task ShowFileHistoryAsync(string path) =>
         RunAsync("Loading file history…", ct => _session!.SetHistoryAsync(HistoryQuery.ForPath(path), ct));
 
-    private async Task StashAsync()
+    private Task StashAsync()
     {
-        if (_host.Dialogs is null || _session is null || IsBusy)
-            return;
-        var message = await _host.Dialogs.PromptAsync("Stash", "Stash message. Leave it blank to let git describe the stash.", allowEmpty: true);
-        if (message is null)
-            return;
-        await RunAsync("Stashing…", ct => _session.StashPushAsync(message, ct));
+        if (_host.Dialogs is not { } dialogs || _session is null || IsBusy)
+            return Task.CompletedTask;
+        return HoldFocus(async () =>
+        {
+            var message = await dialogs.PromptAsync("Stash", "Stash message. Leave it blank to let git describe the stash.", allowEmpty: true);
+            if (message is null || _session is null)
+                return;
+            await RunAsync("Stashing…", ct => _session.StashPushAsync(message, ct));
+        });
     }
 
-    private async Task AddRemoteAsync()
+    private Task AddRemoteAsync()
     {
-        if (_host.Dialogs is null || _session is null || IsBusy)
-            return;
-        var name = await _host.Dialogs.PromptAsync("Add remote", "Remote name");
-        if (string.IsNullOrWhiteSpace(name))
-            return;
-        var url = await _host.Dialogs.PromptAsync("Add remote", "Remote URL or path");
-        if (string.IsNullOrWhiteSpace(url))
-            return;
-        await RunAsync("Adding remote…", ct => _session.AddRemoteAsync(name, url, ct));
+        if (_host.Dialogs is not { } dialogs || _session is null || IsBusy)
+            return Task.CompletedTask;
+        return HoldFocus(async () =>
+        {
+            var name = await dialogs.PromptAsync("Add remote", "Remote name");
+            if (string.IsNullOrWhiteSpace(name) || _session is null)
+                return;
+            var url = await dialogs.PromptAsync("Add remote", "Remote URL or path");
+            if (string.IsNullOrWhiteSpace(url) || _session is null)
+                return;
+            await RunAsync("Adding remote…", ct => _session.AddRemoteAsync(name, url, ct));
+        });
     }
 
     private Task RemoveRemoteAsync(string name)
@@ -268,14 +274,17 @@ public partial class RepositoryViewModel
         return ConfirmRun("Remove remote", $"Remove remote {name}?", "Remove", "Removing remote…", ct => _session!.RemoveRemoteAsync(name, ct));
     }
 
-    private async Task RenameRemoteAsync(string name)
+    private Task RenameRemoteAsync(string name)
     {
-        if (_host.Dialogs is null || _session is null || IsBusy)
-            return;
-        var next = await _host.Dialogs.PromptAsync("Rename remote", $"New name for {name}", name);
-        if (string.IsNullOrWhiteSpace(next) || next == name)
-            return;
-        await RunAsync("Renaming remote…", ct => _session.RenameRemoteAsync(name, next, ct));
+        if (_host.Dialogs is not { } dialogs || _session is null || IsBusy)
+            return Task.CompletedTask;
+        return HoldFocus(async () =>
+        {
+            var next = await dialogs.PromptAsync("Rename remote", $"New name for {name}", name);
+            if (string.IsNullOrWhiteSpace(next) || next == name || _session is null)
+                return;
+            await RunAsync("Renaming remote…", ct => _session.RenameRemoteAsync(name, next, ct));
+        });
     }
 
     private Task DeleteTagAsync(string name) =>
@@ -316,24 +325,30 @@ public partial class RepositoryViewModel
     private Task RevertAsync(CommitRecord commit) =>
         RunAsync("Reverting…", ct => _session!.RevertAsync(commit.Sha, ct));
 
-    private async Task TagAsync(CommitRecord commit)
+    private Task TagAsync(CommitRecord commit)
     {
-        if (_host.Dialogs is null || _session is null || IsBusy)
-            return;
-        var name = await _host.Dialogs.PromptAsync("Create tag", $"Tag name for {Short(commit.Sha)}");
-        if (string.IsNullOrWhiteSpace(name))
-            return;
-        await RunAsync("Tagging…", ct => _session.CreateTagAsync(name, commit.Sha, ct));
+        if (_host.Dialogs is not { } dialogs || _session is null || IsBusy)
+            return Task.CompletedTask;
+        return HoldFocus(async () =>
+        {
+            var name = await dialogs.PromptAsync("Create tag", $"Tag name for {Short(commit.Sha)}");
+            if (string.IsNullOrWhiteSpace(name) || _session is null)
+                return;
+            await RunAsync("Tagging…", ct => _session.CreateTagAsync(name, commit.Sha, ct));
+        });
     }
 
-    private async Task ConfirmRun(string title, string message, string confirm, string busy, Func<CancellationToken, Task> action)
+    private Task ConfirmRun(string title, string message, string confirm, string busy, Func<CancellationToken, Task> action)
     {
-        if (_host.Dialogs is null || _session is null || IsBusy)
-            return;
-        var ok = await _host.Dialogs.ConfirmAsync(title, message, confirm);
-        if (!ok)
-            return;
-        await RunAsync(busy, action);
+        if (_host.Dialogs is not { } dialogs || _session is null || IsBusy)
+            return Task.CompletedTask;
+        return HoldFocus(async () =>
+        {
+            var ok = await dialogs.ConfirmAsync(title, message, confirm);
+            if (!ok || _session is null)
+                return;
+            await RunAsync(busy, action);
+        });
     }
 
     private Task ReloadDiffViewAsync()

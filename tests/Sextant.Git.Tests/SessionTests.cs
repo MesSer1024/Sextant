@@ -14,6 +14,41 @@ public class SessionTests
     }
 
     [Fact]
+    public async Task Create_branch_checks_out_the_new_name_and_keeps_the_old_one()
+    {
+        using var repo = new TempRepo();
+        repo.WriteFile("a.txt", "one\n");
+        repo.CommitAll("first");
+        var original = repo.CurrentBranch();
+        repo.WriteFile("a.txt", "dirty\n");
+        await using var session = await Open(repo);
+        await session.CreateBranchAsync("feature", CancellationToken.None);
+
+        Assert.Equal("feature", repo.CurrentBranch());
+        Assert.Contains("dirty", File.ReadAllText(Path.Combine(repo.Directory, "a.txt")), StringComparison.Ordinal);
+        var state = session.Snapshot();
+        Assert.Equal("feature", state.Branch.HeadName);
+        Assert.Contains(state.Refs, reference => reference.Name == "refs/heads/feature" && reference.IsHead);
+        Assert.Contains(state.Refs, reference => reference.Name == "refs/heads/" + original && !reference.IsHead);
+        Assert.Contains(state.Entries, entry => entry.Path == "a.txt");
+        Assert.DoesNotContain(state.Commands, command => command.ExitCode != 0);
+    }
+
+    [Fact]
+    public async Task Create_branch_on_an_unborn_repository_uses_that_name()
+    {
+        using var repo = new TempRepo();
+        await using var session = await Open(repo);
+        await session.CreateBranchAsync("feature", CancellationToken.None);
+
+        Assert.Equal("feature", repo.CurrentBranch());
+        var state = session.Snapshot();
+        Assert.True(state.Branch.Unborn);
+        Assert.Equal("feature", state.Branch.HeadName);
+        Assert.DoesNotContain(state.Commands, command => command.ExitCode != 0);
+    }
+
+    [Fact]
     public async Task Open_orphan_branch_keeps_commits_from_other_branches()
     {
         using var repo = new TempRepo();

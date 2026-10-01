@@ -45,34 +45,37 @@ public partial class RepositoryViewModel
     public bool CanOpenLocation => SelectedLocation?.ShowOpen == true;
 
     [RelayCommand]
-    private async Task AddWorktree()
+    private Task AddWorktree()
     {
-        if (_session is null || IsBusy || _host.Dialogs is null)
-            return;
-        var path = await _host.Dialogs.PromptAsync("Add worktree", "Folder for the new worktree. It must not exist yet.");
-        if (string.IsNullOrWhiteSpace(path))
-            return;
-        var branch = await _host.Dialogs.PromptAsync(
-            "Add worktree",
-            "New branch name. Leave blank to check out an existing branch, or to let git name one from the folder.",
-            allowEmpty: true);
-        if (branch is null)
-            return;
-        string? start = null;
-        if (string.IsNullOrWhiteSpace(branch))
+        if (_session is null || IsBusy || _host.Dialogs is not { } dialogs)
+            return Task.CompletedTask;
+        return HoldFocus(async () =>
         {
-            branch = null;
-            start = await _host.Dialogs.PromptAsync(
-                "Add worktree",
-                "Existing branch or commit. Leave blank to start at HEAD.",
-                allowEmpty: true);
-            if (start is null)
+            var path = await dialogs.PromptAsync("Add worktree", "Folder for the new worktree. It must not exist yet.");
+            if (string.IsNullOrWhiteSpace(path) || _session is null)
                 return;
-            if (string.IsNullOrWhiteSpace(start))
-                start = null;
-        }
+            var branch = await dialogs.PromptAsync(
+                "Add worktree",
+                "New branch name. Leave blank to check out an existing branch, or to let git name one from the folder.",
+                allowEmpty: true);
+            if (branch is null || _session is null)
+                return;
+            string? start = null;
+            if (string.IsNullOrWhiteSpace(branch))
+            {
+                branch = null;
+                start = await dialogs.PromptAsync(
+                    "Add worktree",
+                    "Existing branch or commit. Leave blank to start at HEAD.",
+                    allowEmpty: true);
+                if (start is null || _session is null)
+                    return;
+                if (string.IsNullOrWhiteSpace(start))
+                    start = null;
+            }
 
-        await RunAsync("Adding worktree…", ct => _session.AddWorktreeAsync(path, branch, start, ct));
+            await RunAsync("Adding worktree…", ct => _session.AddWorktreeAsync(path, branch, start, ct));
+        });
     }
 
     [RelayCommand]

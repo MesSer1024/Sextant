@@ -212,11 +212,25 @@ public partial class RepositoryViewModel : ViewModelBase
 
     public Task RefreshFromFocusAsync()
     {
-        // The speed-up dialog closes by activating this window. That activation
-        // must not start a refresh that takes IsBusy and drops the config write.
+        // A dialog closes by activating this window. HoldFocus keeps that
+        // activation from starting a refresh that takes IsBusy and drops the
+        // command the dialog just confirmed.
         if (_session is null || IsBusy || _holdFocusRefresh > 0)
             return Task.CompletedTask;
         return Refresh();
+    }
+
+    private async Task HoldFocus(Func<Task> action)
+    {
+        _holdFocusRefresh++;
+        try
+        {
+            await action();
+        }
+        finally
+        {
+            _holdFocusRefresh--;
+        }
     }
 
     [RelayCommand]
@@ -271,21 +285,24 @@ public partial class RepositoryViewModel : ViewModelBase
     private void Cancel() => _operation?.Cancel();
 
     [RelayCommand]
-    public async Task CreateBranch()
+    public Task CreateBranch()
     {
-        if (_host.Dialogs is null || _session is null || IsBusy)
-            return;
-        var name = await _host.Dialogs.PromptAsync("Create branch", "Branch name");
-        if (string.IsNullOrWhiteSpace(name))
-            return;
-        await RunAsync("Creating branch…", ct => _session.CreateBranchAsync(name, ct));
+        if (_host.Dialogs is not { } dialogs || _session is null || IsBusy)
+            return Task.CompletedTask;
+        return HoldFocus(async () =>
+        {
+            var name = await dialogs.PromptAsync("Create branch", "Branch name");
+            if (string.IsNullOrWhiteSpace(name) || _session is null)
+                return;
+            await RunAsync("Creating branch…", ct => _session.CreateBranchAsync(name, ct));
+        });
     }
 
     [RelayCommand]
-    public async Task AbortMerge()
+    public Task AbortMerge()
     {
-        if (_host.Dialogs is null || _session is null || IsBusy)
-            return;
+        if (_host.Dialogs is not { } dialogs || _session is null || IsBusy)
+            return Task.CompletedTask;
         var kind = _session.Snapshot().Sequencer;
         var noun = kind switch
         {
@@ -294,10 +311,13 @@ public partial class RepositoryViewModel : ViewModelBase
             SequencerKind.Revert => "revert",
             _ => "merge",
         };
-        var ok = await _host.Dialogs.ConfirmAsync("Abort", $"Abort the current {noun} and return to HEAD?", "Abort");
-        if (!ok)
-            return;
-        await RunAsync("Aborting…", ct => _session.AbortSequencerAsync(ct));
+        return HoldFocus(async () =>
+        {
+            var ok = await dialogs.ConfirmAsync("Abort", $"Abort the current {noun} and return to HEAD?", "Abort");
+            if (!ok || _session is null)
+                return;
+            await RunAsync("Aborting…", ct => _session.AbortSequencerAsync(ct));
+        });
     }
 
     [RelayCommand]
@@ -309,25 +329,35 @@ public partial class RepositoryViewModel : ViewModelBase
     }
 
     [RelayCommand]
-    public async Task CheckoutFromPalette()
+    public Task CheckoutFromPalette()
     {
-        var pick = await PickRefAsync("Checkout", "Checkout a branch.");
-        if (pick is null || _session is null)
-            return;
-        if (pick.StartsWith("refs/heads/", StringComparison.Ordinal))
-            await RunAsync("Checking out…", ct => _session.SwitchAsync(ShortHead(pick), ct));
-        else if (pick.StartsWith("refs/remotes/", StringComparison.Ordinal))
-            await RunAsync("Checking out…", ct => _session.SwitchTrackAsync(ShortRemote(pick), ct));
+        if (_host.Dialogs is null || _session is null || IsBusy)
+            return Task.CompletedTask;
+        return HoldFocus(async () =>
+        {
+            var pick = await PickRefAsync("Checkout", "Checkout a branch.");
+            if (pick is null || _session is null)
+                return;
+            if (pick.StartsWith("refs/heads/", StringComparison.Ordinal))
+                await RunAsync("Checking out…", ct => _session.SwitchAsync(ShortHead(pick), ct));
+            else if (pick.StartsWith("refs/remotes/", StringComparison.Ordinal))
+                await RunAsync("Checking out…", ct => _session.SwitchTrackAsync(ShortRemote(pick), ct));
+        });
     }
 
     [RelayCommand]
-    public async Task MergeFromPalette()
+    public Task MergeFromPalette()
     {
-        var pick = await PickRefAsync("Merge", "Merge a branch into HEAD.");
-        if (pick is null)
-            return;
-        var name = pick.StartsWith("refs/heads/", StringComparison.Ordinal) ? ShortHead(pick) : ShortRemote(pick);
-        await MergeNamedAsync(name);
+        if (_host.Dialogs is null || _session is null || IsBusy)
+            return Task.CompletedTask;
+        return HoldFocus(async () =>
+        {
+            var pick = await PickRefAsync("Merge", "Merge a branch into HEAD.");
+            if (pick is null)
+                return;
+            var name = pick.StartsWith("refs/heads/", StringComparison.Ordinal) ? ShortHead(pick) : ShortRemote(pick);
+            await MergeNamedAsync(name);
+        });
     }
 
     [RelayCommand]
@@ -737,11 +767,15 @@ public partial class RepositoryViewModel : ViewModelBase
                 return;
             }
 
-            var remote = await _host.Dialogs.PickAsync("Push", $"Push {branch} and set its upstream.", state.Remotes);
-            if (remote is null)
-                return;
-            var progress = Progress();
-            await RunAsync(label, ct => _session.PushUpstreamAsync(remote, branch, progress, ct, noVerify));
+            var dialogs = _host.Dialogs;
+            await HoldFocus(async () =>
+            {
+                var remote = await dialogs.PickAsync("Push", $"Push {branch} and set its upstream.", state.Remotes);
+                if (remote is null || _session is null)
+                    return;
+                var progress = Progress();
+                await RunAsync(label, ct => _session.PushUpstreamAsync(remote, branch, progress, ct, noVerify));
+            });
             return;
         }
 
@@ -993,20 +1027,23 @@ public partial class RepositoryViewModel : ViewModelBase
         };
     }
 
-    private async Task DiscardAsync(string path, bool untracked)
+    private Task DiscardAsync(string path, bool untracked)
     {
-        if (_host.Dialogs is null || _session is null)
-            return;
-        var ok = await _host.Dialogs.ConfirmAsync(
-            "Discard",
-            $"Discard changes to {path}? This cannot be undone.",
-            "Discard");
-        if (!ok)
-            return;
-        if (untracked)
-            await RunAsync("Discarding…", ct => _session.DiscardUntrackedAsync(path, ct));
-        else
-            await RunAsync("Discarding…", ct => _session.DiscardTrackedAsync(path, ct));
+        if (_host.Dialogs is not { } dialogs || _session is null)
+            return Task.CompletedTask;
+        return HoldFocus(async () =>
+        {
+            var ok = await dialogs.ConfirmAsync(
+                "Discard",
+                $"Discard changes to {path}? This cannot be undone.",
+                "Discard");
+            if (!ok || _session is null)
+                return;
+            if (untracked)
+                await RunAsync("Discarding…", ct => _session.DiscardUntrackedAsync(path, ct));
+            else
+                await RunAsync("Discarding…", ct => _session.DiscardTrackedAsync(path, ct));
+        });
     }
 
     private void RebuildLocations(SessionState state)
@@ -1295,54 +1332,60 @@ public partial class RepositoryViewModel : ViewModelBase
         return section;
     }
 
-    private async Task MergeNamedAsync(string name)
+    private Task MergeNamedAsync(string name)
     {
-        if (_host.Dialogs is null || _session is null || IsBusy)
-            return;
+        if (_host.Dialogs is not { } dialogs || _session is null || IsBusy)
+            return Task.CompletedTask;
         var current = _session.Snapshot().Branch.HeadName ?? "HEAD";
-        var ok = await _host.Dialogs.ConfirmAsync("Merge", $"Merge {name} into {current}?", "Merge");
-        if (!ok)
-            return;
-        await RunAsync("Merging…", ct => _session.MergeAsync(name, ct));
+        return HoldFocus(async () =>
+        {
+            var ok = await dialogs.ConfirmAsync("Merge", $"Merge {name} into {current}?", "Merge");
+            if (!ok || _session is null)
+                return;
+            await RunAsync("Merging…", ct => _session.MergeAsync(name, ct));
+        });
     }
 
-    private async Task DeleteNamedAsync(string name)
+    private Task DeleteNamedAsync(string name)
     {
-        if (_host.Dialogs is null || _session is null || IsBusy)
-            return;
-        var ok = await _host.Dialogs.ConfirmAsync("Delete branch", $"Delete {name}?", "Delete");
-        if (!ok || _session is null)
-            return;
-        var unmerged = false;
-        await RunAsync("Deleting branch…", async ct =>
+        if (_host.Dialogs is not { } dialogs || _session is null || IsBusy)
+            return Task.CompletedTask;
+        return HoldFocus(async () =>
         {
-            try
+            var ok = await dialogs.ConfirmAsync("Delete branch", $"Delete {name}?", "Delete");
+            if (!ok || _session is null)
+                return;
+            var unmerged = false;
+            await RunAsync("Deleting branch…", async ct =>
             {
-                await _session.DeleteBranchAsync(name, ct);
-            }
-            catch (GitCommandFailedException exception) when (IsNotFullyMerged(exception))
-            {
-                unmerged = true;
-            }
+                try
+                {
+                    await _session.DeleteBranchAsync(name, ct);
+                }
+                catch (GitCommandFailedException exception) when (IsNotFullyMerged(exception))
+                {
+                    unmerged = true;
+                }
+            });
+            if (!unmerged || _session is null)
+                return;
+            var force = await dialogs.ConfirmAsync(
+                "Force delete branch",
+                $"{name} is not fully merged. Force delete removes it anyway.",
+                "Force delete");
+            if (!force || _session is null)
+                return;
+            await RunAsync("Deleting branch…", ct => _session.ForceDeleteBranchAsync(name, ct));
         });
-        if (!unmerged || _host.Dialogs is null || _session is null)
-            return;
-        var force = await _host.Dialogs.ConfirmAsync(
-            "Force delete branch",
-            $"{name} is not fully merged. Force delete removes it anyway.",
-            "Force delete");
-        if (!force || _session is null)
-            return;
-        await RunAsync("Deleting branch…", ct => _session.ForceDeleteBranchAsync(name, ct));
     }
 
     private static bool IsNotFullyMerged(GitCommandFailedException exception) =>
         exception.StandardError.Contains("not fully merged", StringComparison.OrdinalIgnoreCase);
 
-    private async Task SetUpstreamNamedAsync(string branch)
+    private Task SetUpstreamNamedAsync(string branch)
     {
-        if (_host.Dialogs is null || _session is null || IsBusy)
-            return;
+        if (_host.Dialogs is not { } dialogs || _session is null || IsBusy)
+            return Task.CompletedTask;
         var options = _session.Snapshot().Refs
             .Where(reference => reference.Name.StartsWith("refs/remotes/", StringComparison.Ordinal)
                 && !reference.Name.EndsWith("/HEAD", StringComparison.Ordinal))
@@ -1351,13 +1394,16 @@ public partial class RepositoryViewModel : ViewModelBase
         if (options.Count == 0)
         {
             Fail("There is no remote-tracking branch to use as upstream.");
-            return;
+            return Task.CompletedTask;
         }
 
-        var pick = await _host.Dialogs.PickAsync("Set upstream", $"Upstream for {branch}", options);
-        if (pick is null)
-            return;
-        await RunAsync("Setting upstream…", ct => _session.SetUpstreamAsync(branch, pick, ct));
+        return HoldFocus(async () =>
+        {
+            var pick = await dialogs.PickAsync("Set upstream", $"Upstream for {branch}", options);
+            if (pick is null || _session is null)
+                return;
+            await RunAsync("Setting upstream…", ct => _session.SetUpstreamAsync(branch, pick, ct));
+        });
     }
 
     private async Task RevealAsync(string oid)
