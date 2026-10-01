@@ -82,6 +82,8 @@ public partial class RepositoryViewModel : ViewModelBase
     [ObservableProperty]
     public partial bool ShowAheadBehind { get; set; }
 
+    public bool ShowBranchStatus => ShowAheadBehind || IsBusy;
+
     [ObservableProperty]
     public partial bool IsDirty { get; set; }
 
@@ -404,8 +406,11 @@ public partial class RepositoryViewModel : ViewModelBase
     {
         OnPropertyChanged(nameof(CanCommit));
         OnPropertyChanged(nameof(CanRunCommands));
+        OnPropertyChanged(nameof(ShowBranchStatus));
         NotifyBulkStage();
     }
+
+    partial void OnShowAheadBehindChanged(bool value) => OnPropertyChanged(nameof(ShowBranchStatus));
 
     partial void OnShowingWorkingCopyChanged(bool value)
     {
@@ -1839,7 +1844,7 @@ public partial class RepositoryViewModel : ViewModelBase
             return "detached " + Short(branch.Oid);
         if (string.IsNullOrEmpty(branch.HeadName))
             return branch.Unborn ? "No branch" : "HEAD";
-        return branch.Upstream is { Length: > 0 } upstream ? branch.HeadName + "  →  " + upstream : branch.HeadName;
+        return branch.HeadName;
     }
 
     private static string RefLabel(string sha, IReadOnlyList<GitRef> refs)

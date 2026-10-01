@@ -22,23 +22,46 @@
             <TextBlock Text="{Binding ConflictText}" TextWrapping="Wrap"/>
         </Border>
 
-        <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto,Auto,Auto,Auto" Margin="8,6">
-            <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-                <TextBlock Text="{Binding BranchText}" FontWeight="SemiBold" VerticalAlignment="Center"/>
-                <TextBlock Text="{Binding AheadBehindText}" IsVisible="{Binding ShowAheadBehind}" VerticalAlignment="Center" Opacity="0.75"/>
-                <TextBlock Text="{Binding BusyText}" IsVisible="{Binding IsBusy}" VerticalAlignment="Center" Opacity="0.75"/>
+        <Grid Grid.Row="2" Margin="8,6" Grid.IsSharedSizeScope="True">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" SharedSizeGroup="BranchEnds"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto" SharedSizeGroup="BranchEnds"/>
+            </Grid.ColumnDefinitions>
+            <Border Grid.Column="1"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    MinWidth="168"
+                    MaxWidth="420"
+                    Padding="16,5"
+                    CornerRadius="14"
+                    BorderThickness="1"
+                    BorderBrush="{DynamicResource SystemControlForegroundBaseMediumLowBrush}"
+                    Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
+                <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
+                    <TextBlock Text="{Binding BranchText}" FontWeight="SemiBold" VerticalAlignment="Center"
+                               TextTrimming="CharacterEllipsis" MaxWidth="220"/>
+                    <TextBlock Text="·" Opacity="0.45" VerticalAlignment="Center" IsVisible="{Binding ShowBranchStatus}"/>
+                    <TextBlock Text="{Binding AheadBehindText}" IsVisible="{Binding ShowAheadBehind}"
+                               VerticalAlignment="Center" Opacity="0.72" FontSize="12"/>
+                    <TextBlock Text="{Binding BusyText}" IsVisible="{Binding IsBusy}"
+                               VerticalAlignment="Center" Opacity="0.72" FontSize="12"
+                               TextTrimming="CharacterEllipsis" MaxWidth="160"/>
+                </StackPanel>
+            </Border>
+            <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" Panel.ZIndex="1">
+                <SplitButton Content="Pull" Command="{Binding PullCommand}" IsEnabled="{Binding CanRunCommands}">
+                    <SplitButton.Flyout>
+                        <MenuFlyout>
+                            <MenuItem Header="Fetch" Command="{Binding FetchCommand}"/>
+                        </MenuFlyout>
+                    </SplitButton.Flyout>
+                </SplitButton>
+                <Button Content="Push" Command="{Binding PushCommand}" Margin="6,0,0,0" IsEnabled="{Binding CanRunCommands}"/>
+                <Button Content="Continue" Command="{Binding ContinueSequencerCommand}" Margin="6,0,0,0" IsVisible="{Binding IsConflicted}"/>
+                <Button Content="Abort" Command="{Binding AbortMergeCommand}" Margin="6,0,0,0" IsVisible="{Binding IsConflicted}"/>
+                <Button Content="Cancel" Command="{Binding CancelCommand}" Margin="6,0,0,0" IsVisible="{Binding CanCancel}"/>
             </StackPanel>
-            <SplitButton Grid.Column="1" Content="Pull" Command="{Binding PullCommand}" IsEnabled="{Binding CanRunCommands}">
-                <SplitButton.Flyout>
-                    <MenuFlyout>
-                        <MenuItem Header="Fetch" Command="{Binding FetchCommand}"/>
-                    </MenuFlyout>
-                </SplitButton.Flyout>
-            </SplitButton>
-            <Button Grid.Column="2" Content="Push" Command="{Binding PushCommand}" Margin="6,0,0,0" IsEnabled="{Binding CanRunCommands}"/>
-            <Button Grid.Column="3" Content="Continue" Command="{Binding ContinueSequencerCommand}" Margin="6,0,0,0" IsVisible="{Binding IsConflicted}"/>
-            <Button Grid.Column="4" Content="Abort" Command="{Binding AbortMergeCommand}" Margin="6,0,0,0" IsVisible="{Binding IsConflicted}"/>
-            <Button Grid.Column="5" Content="Cancel" Command="{Binding CancelCommand}" Margin="6,0,0,0" IsVisible="{Binding CanCancel}"/>
         </Grid>
 
         <Grid x:Name="Columns" Grid.Row="3" Margin="4,0,4,4">
