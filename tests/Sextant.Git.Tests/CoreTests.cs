@@ -249,7 +249,7 @@ public class CoreTests
             var migrated = RepoLayouts.Resolve(legacy, @"C:\repos\kept");
             Assert.Equal(220, migrated.LocationsWidth);
             Assert.Equal(520, migrated.GraphWidth);
-            Assert.Equal(180, migrated.FilesHeight);
+            Assert.Equal(320, migrated.FilesHeight);
         }
         finally
         {

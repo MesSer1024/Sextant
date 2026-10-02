@@ -62,7 +62,7 @@ public partial class RepositoryViewModel : ViewModelBase
 
     private double _graphWidth = 520;
 
-    private double _filesHeight = 180;
+    private double _filesHeight = 320;
 
     public double LocationsWidth
     {

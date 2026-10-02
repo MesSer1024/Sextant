@@ -329,7 +329,7 @@ public partial class RepositoryView : UserControl
 
     private ColumnDefinition GraphColumn => Columns.ColumnDefinitions[2];
 
-    private RowDefinition FilesRow => Details.RowDefinitions[2];
+    private RowDefinition FilesRow => HistoryColumn.RowDefinitions[0];
 
     public void ReadWidths()
     {

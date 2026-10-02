@@ -13,7 +13,7 @@ public sealed class WorkspaceState
 
     public double GraphWidth { get; set; } = 520;
 
-    public double FilesHeight { get; set; } = 180;
+    public double FilesHeight { get; set; } = 320;
 
     public Dictionary<string, RepoLayout> RepoLayouts { get; set; } = [];
 
@@ -34,7 +34,7 @@ public sealed class RepoLayout
 
     public double GraphWidth { get; set; } = 520;
 
-    public double FilesHeight { get; set; } = 180;
+    public double FilesHeight { get; set; } = 320;
 }
 
 public static class RepoLayouts
@@ -119,7 +119,7 @@ public static class RepoLayouts
     {
         LocationsWidth = state.LocationsWidth >= 140 ? state.LocationsWidth : 220,
         GraphWidth = state.GraphWidth >= 240 ? state.GraphWidth : 520,
-        FilesHeight = state.FilesHeight >= 80 ? state.FilesHeight : 180,
+        FilesHeight = state.FilesHeight >= 80 ? state.FilesHeight : 320,
     };
 }
 

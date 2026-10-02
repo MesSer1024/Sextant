@@ -81,9 +81,9 @@
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="220" MinWidth="140"/>
                 <ColumnDefinition Width="4"/>
-                <ColumnDefinition Width="520" MinWidth="240"/>
+                <ColumnDefinition Width="460" MinWidth="360"/>
                 <ColumnDefinition Width="4"/>
-                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="*" MinWidth="320"/>
             </Grid.ColumnDefinitions>
 
             <ListBox Grid.Column="0" ItemsSource="{Binding Locations}" SelectedItem="{Binding SelectedLocation}"
@@ -140,7 +140,8 @@
 
             <GridSplitter Grid.Column="1" ResizeDirection="Columns"/>
 
-            <DockPanel Grid.Column="2">
+            <Grid x:Name="HistoryColumn" Grid.Column="2" RowDefinitions="320,4,*">
+            <DockPanel Grid.Row="2" MinHeight="120">
                 <StackPanel DockPanel.Dock="Top" Margin="0,0,0,4" Spacing="4" IsVisible="{Binding ShowHistoryChrome}">
                     <Grid ColumnDefinitions="*,Auto,Auto" IsVisible="{Binding ShowHistorySearch}">
                         <TextBox x:Name="HistorySearchBox" PlaceholderText="Search subject, author, sha, or branch:name" Text="{Binding HistoryText}" KeyDown="OnHistoryKeyDown"/>
@@ -194,16 +195,9 @@
                 </ListBox>
             </DockPanel>
 
-            <GridSplitter Grid.Column="3" ResizeDirection="Columns"/>
+                <GridSplitter Grid.Row="1" ResizeDirection="Rows"/>
 
-            <Grid x:Name="Details" Grid.Column="4">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="180" MinHeight="80"/>
-                    <RowDefinition Height="4"/>
-                    <RowDefinition Height="*"/>
-                </Grid.RowDefinitions>
+                <Grid Grid.Row="0" RowDefinitions="Auto,Auto,*" MinHeight="140">
 
                 <StackPanel Grid.Row="0">
                     <Border IsVisible="{Binding ShowingWorkingCopy}" Padding="8,6,8,4">
@@ -267,10 +261,13 @@
                         </DataTemplate>
                     </ListBox.ItemTemplate>
                 </ListBox>
+                </Grid>
+            </Grid>
 
-                <GridSplitter Grid.Row="3" ResizeDirection="Rows"/>
+            <GridSplitter Grid.Column="3" ResizeDirection="Columns"/>
 
-                <DockPanel Grid.Row="4">
+            <Grid x:Name="Details" Grid.Column="4">
+                <DockPanel>
                     <WrapPanel DockPanel.Dock="Top" Margin="8,4,8,0">
                         <Button Classes="flat" Content="{Binding SideBySideLabel}" Command="{Binding ToggleSideBySideCommand}" Margin="0,0,4,4"/>
                         <Button Classes="flat" Content="{Binding WhitespaceLabel}" Command="{Binding ToggleWhitespaceCommand}" Margin="0,0,4,4"/>
