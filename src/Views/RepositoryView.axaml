@@ -296,6 +296,7 @@
                                                     BorderBrush="{DynamicResource SystemControlForegroundBaseMediumLowBrush}">
                                                 <DockPanel>
                                                     <TextBlock DockPanel.Dock="Top" Text="{Binding BeforeCaption}" Opacity="0.72" Margin="0,0,0,8"/>
+                                                    <TextBlock DockPanel.Dock="Bottom" Text="{Binding BeforeDetail}" IsVisible="{Binding HasBeforeDetail}" TextWrapping="Wrap" Opacity="0.75" Margin="0,8,0,0"/>
                                                     <TextBlock Text="{Binding BeforeNotice}" IsVisible="{Binding ShowBeforeNotice}" TextWrapping="Wrap" VerticalAlignment="Center" Opacity="0.75"/>
                                                     <Image Source="{Binding Before}" Stretch="Uniform" MaxHeight="420" HorizontalAlignment="Center" VerticalAlignment="Center" IsVisible="{Binding HasBefore}"/>
                                                 </DockPanel>
@@ -304,6 +305,7 @@
                                                     BorderBrush="{DynamicResource SystemControlForegroundBaseMediumLowBrush}">
                                                 <DockPanel>
                                                     <TextBlock DockPanel.Dock="Top" Text="{Binding AfterCaption}" Opacity="0.72" Margin="0,0,0,8"/>
+                                                    <TextBlock DockPanel.Dock="Bottom" Text="{Binding AfterDetail}" IsVisible="{Binding HasAfterDetail}" TextWrapping="Wrap" Opacity="0.75" Margin="0,8,0,0"/>
                                                     <TextBlock Text="{Binding AfterNotice}" IsVisible="{Binding ShowAfterNotice}" TextWrapping="Wrap" VerticalAlignment="Center" Opacity="0.75"/>
                                                     <Image Source="{Binding After}" Stretch="Uniform" MaxHeight="420" HorizontalAlignment="Center" VerticalAlignment="Center" IsVisible="{Binding HasAfter}"/>
                                                 </DockPanel>

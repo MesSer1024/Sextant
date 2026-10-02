@@ -19,6 +19,9 @@ public class ImageRasterTests
         Assert.True(ImageFiles.IsImagePath("a.tif"));
         Assert.True(ImageFiles.IsImagePath("a.tiff"));
         Assert.False(ImageFiles.IsImagePath("a.txt"));
+        Assert.False(ImageFiles.IsImagePath("a.fbx"));
+        Assert.True(ModelFiles.IsFbxPath("model.FBX"));
+        Assert.False(ModelFiles.IsFbxPath("model.png"));
     }
 
     [Fact]

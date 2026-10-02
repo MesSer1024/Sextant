@@ -349,6 +349,38 @@ public class Phase4Tests
     }
 
     [Fact]
+    public async Task Fbx_preview_loads_both_versions()
+    {
+        using var repo = new TempRepo();
+        repo.Run("config", "core.autocrlf", "false");
+        var first = Encoding.ASCII.GetBytes("before-fbx");
+        var second = Encoding.ASCII.GetBytes("after-fbx");
+        var path = Path.Combine(repo.Directory, "hero.fbx");
+        File.WriteAllBytes(path, first);
+        repo.CommitAll("model");
+        var parent = repo.RunCapture("rev-parse", "HEAD").Trim();
+        File.WriteAllBytes(path, second);
+
+        await using var session = await Open(repo);
+        var worktree = await session.PreviewImageAsync(
+            new ImageRequest("hero.fbx", "", null, false, true),
+            CancellationToken.None);
+        Assert.NotNull(worktree);
+        Assert.Equal(first, worktree.Before);
+        Assert.Equal(second, worktree.After);
+
+        repo.CommitAll("model changed");
+        var head = repo.RunCapture("rev-parse", "HEAD").Trim();
+        var committed = await session.PreviewImageAsync(
+            new ImageRequest("hero.fbx", parent, head, false, false),
+            CancellationToken.None);
+        Assert.NotNull(committed);
+        Assert.Equal(first, committed.Before);
+        Assert.Equal(second, committed.After);
+        Assert.Null(await session.PreviewImageAsync(new ImageRequest("notes.txt", null, head, false, false), CancellationToken.None));
+    }
+
+    [Fact]
     public async Task Image_preview_loads_svg_and_tiff()
     {
         using var repo = new TempRepo();
@@ -447,6 +479,89 @@ public class Phase4Tests
             catch (UnauthorizedAccessException)
             {
             }
+        }
+    }
+
+    [Fact]
+    public async Task Lfs_preview_retries_with_another_signed_in_github_account()
+    {
+        var scriptDir = Path.Combine(Path.GetTempPath(), "sextant-script-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(scriptDir);
+        var smudgePath = Path.Combine(scriptDir, "smudge.ps1");
+        var cleanPath = Path.Combine(scriptDir, "clean.ps1");
+        var smudgeGit = smudgePath.Replace('\\', '/');
+        var cleanGit = cleanPath.Replace('\\', '/');
+        File.WriteAllBytes(cleanPath, Encoding.ASCII.GetBytes("""
+            [Console]::OpenStandardInput().CopyTo([Console]::OpenStandardOutput())
+            """));
+        File.WriteAllBytes(smudgePath, Encoding.ASCII.GetBytes("""
+            if ($env:GH_TOKEN -eq "good-token") {
+              $b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+              $bytes = [Convert]::FromBase64String($b64)
+              $out = [Console]::OpenStandardOutput()
+              $out.Write($bytes, 0, $bytes.Length)
+              $out.Flush()
+              exit 0
+            }
+            [Console]::Error.WriteLine("batch response: Not Found")
+            exit 1
+            """));
+        try
+        {
+            using var repo = new TempRepo();
+            repo.Run("config", "core.autocrlf", "false");
+            repo.Run("remote", "add", "origin", "https://github.com/example/repo.git");
+            repo.Run("config", "filter.img.clean", "powershell -NoProfile -ExecutionPolicy Bypass -File " + cleanGit);
+            repo.Run("config", "filter.img.smudge", "powershell -NoProfile -ExecutionPolicy Bypass -File " + smudgeGit);
+            repo.Run("config", "filter.img.required", "true");
+            repo.WriteFile(".gitattributes", "*.png filter=img -text\n");
+            repo.WriteFile("pic.png", Pointer('a', 4));
+            repo.CommitAll("pointer");
+            var head = repo.RunCapture("rev-parse", "HEAD").Trim();
+            var login = new ScriptLogin();
+
+            await using var session = await Open(repo);
+            session.UseGitHubLogin(login);
+            var preview = await session.PreviewImageAsync(
+                new ImageRequest("pic.png", null, head, false, false),
+                CancellationToken.None);
+            Assert.NotNull(preview);
+            Assert.Equal(Convert.FromBase64String(PngBase64), preview.After);
+            Assert.Equal("", preview.AfterNotice);
+            Assert.Equal(["work"], login.TokenUsers);
+            Assert.DoesNotContain(session.Snapshot().Commands, command => string.Join(' ', command.Arguments).Contains("good-token", StringComparison.Ordinal));
+            Assert.StartsWith("version https://git-lfs", Encoding.UTF8.GetString(File.ReadAllBytes(Path.Combine(repo.Directory, "pic.png"))), StringComparison.Ordinal);
+        }
+        finally
+        {
+            try
+            {
+                if (Directory.Exists(scriptDir))
+                    Directory.Delete(scriptDir, recursive: true);
+            }
+            catch (IOException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+        }
+    }
+
+    private sealed class ScriptLogin : IGitHubLogin
+    {
+        public List<string> TokenUsers { get; } = [];
+
+        public Task<IReadOnlyList<GitHubAccount>> AccountsAsync(CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<GitHubAccount>>([
+                new GitHubAccount("github.com", "active", true),
+                new GitHubAccount("github.com", "work", false),
+            ]);
+
+        public Task<string?> TokenAsync(string user, CancellationToken cancellationToken)
+        {
+            TokenUsers.Add(user);
+            return Task.FromResult<string?>(user == "work" ? "good-token" : "other-token");
         }
     }
 

@@ -196,7 +196,7 @@ public partial class RepositoryViewModel
         foreach (var note in document.LfsFiles)
         {
             // An image pointer is fetched for both sides by the image preview. The button would load only one of them.
-            if (ImageFiles.IsImagePath(note.Path) && ImagePointerWithinCap(note))
+            if (PreviewPath(note.Path) && ImagePointerWithinCap(note))
                 continue;
 
             if (builder.Length > 0)
@@ -214,7 +214,7 @@ public partial class RepositoryViewModel
                 builder.Append(' ').Append(pointer.Oid).Append(" (").Append(ImageFiles.FormatBytes(pointer.Size)).Append(')');
             }
 
-            if (ImageFiles.IsImagePath(note.Path))
+            if (PreviewPath(note.Path))
             {
                 builder.Append(". It is over 8 MB, so it stays a pointer.");
                 continue;
@@ -339,8 +339,9 @@ public partial class RepositoryViewModel
                 if (token.IsCancellationRequested || load != _imageLoad)
                     return;
                 // SVG and TIFF are drawn here, off the UI thread, so the row spinner can keep turning.
-                var beforePrepared = preview is null ? null : ImageRaster.Prepare(target.Path, preview.Before);
-                var afterPrepared = preview is null ? null : ImageRaster.Prepare(target.Path, preview.After);
+                var beforePath = string.IsNullOrEmpty(target.BeforePath) ? target.Path : target.BeforePath;
+                var beforePrepared = preview is null ? default : PrepareSide(beforePath, preview.Before);
+                var afterPrepared = preview is null ? default : PrepareSide(target.Path, preview.After);
                 if (token.IsCancellationRequested || load != _imageLoad)
                     return;
                 await OnUi(() =>
@@ -378,8 +379,8 @@ public partial class RepositoryViewModel
     private void FillImageRow(
         ImageCompareRow row,
         ImagePreview? preview,
-        byte[]? beforePrepared,
-        byte[]? afterPrepared,
+        PreparedSide beforePrepared,
+        PreparedSide afterPrepared,
         bool published,
         List<ImageCompareRow> visible)
     {
@@ -392,12 +393,14 @@ public partial class RepositoryViewModel
             return;
         }
 
-        var before = DecodeBitmap(beforePrepared);
-        var after = DecodeBitmap(afterPrepared);
+        var before = DecodeBitmap(beforePrepared.Png);
+        var after = DecodeBitmap(afterPrepared.Png);
         row.Before = before;
         row.After = after;
-        row.BeforeNotice = SideNotice(preview.Before, before, preview.BeforeNotice);
-        row.AfterNotice = SideNotice(preview.After, after, preview.AfterNotice);
+        row.BeforeDetail = beforePrepared.Summary;
+        row.AfterDetail = afterPrepared.Summary;
+        row.BeforeNotice = SideNotice(preview.Before, before, preview.BeforeNotice, beforePrepared.Error);
+        row.AfterNotice = SideNotice(preview.After, after, preview.AfterNotice, afterPrepared.Error);
         row.IsLoading = false;
         if (!published && !visible.Contains(row))
             visible.Add(row);
@@ -457,7 +460,7 @@ public partial class RepositoryViewModel
         var targets = new List<(string Path, string? BeforePath)>();
         void Add(string? path, string? before)
         {
-            if (string.IsNullOrEmpty(path) || !ImageFiles.IsImagePath(path))
+            if (string.IsNullOrEmpty(path) || !PreviewPath(path))
                 return;
             if (targets.Exists(item => string.Equals(item.Path, path, StringComparison.Ordinal)))
                 return;
@@ -500,10 +503,26 @@ public partial class RepositoryViewModel
         return null;
     }
 
-    private static string SideNotice(byte[]? bytes, Bitmap? bitmap, string previewNotice)
+    private readonly record struct PreparedSide(byte[]? Png, string Summary, string Error);
+
+    private static bool PreviewPath(string? path) => ImageFiles.IsImagePath(path) || ModelFiles.IsFbxPath(path);
+
+    private static PreparedSide PrepareSide(string path, byte[]? bytes)
+    {
+        if (bytes is null || bytes.Length == 0)
+            return new PreparedSide(null, "", "");
+        if (!ModelFiles.IsFbxPath(path))
+            return new PreparedSide(ImageRaster.Prepare(path, bytes), "", "");
+        var still = FbxPreview.Draw(bytes);
+        return new PreparedSide(still.Png, still.Summary, still.Error);
+    }
+
+    private static string SideNotice(byte[]? bytes, Bitmap? bitmap, string previewNotice, string decodeError)
     {
         if (bitmap is not null)
             return "";
+        if (decodeError.Length > 0)
+            return decodeError;
         if (bytes is { Length: > 0 })
             return "This image could not be decoded.";
         return previewNotice;
@@ -681,6 +700,8 @@ public sealed class ImageCompareRow : ObservableObject
     private Bitmap? _after;
     private string _beforeNotice;
     private string _afterNotice;
+    private string _beforeDetail = "";
+    private string _afterDetail = "";
 
     public ImageCompareRow(string path, Bitmap? before, Bitmap? after, string beforeNotice, string afterNotice)
     {
@@ -738,6 +759,36 @@ public sealed class ImageCompareRow : ObservableObject
             OnPropertyChanged(nameof(ShowAfterNotice));
         }
     }
+
+    public string BeforeDetail
+    {
+        get => _beforeDetail;
+        set
+        {
+            if (_beforeDetail == value)
+                return;
+            _beforeDetail = value;
+            OnPropertyChanged(nameof(BeforeDetail));
+            OnPropertyChanged(nameof(HasBeforeDetail));
+        }
+    }
+
+    public string AfterDetail
+    {
+        get => _afterDetail;
+        set
+        {
+            if (_afterDetail == value)
+                return;
+            _afterDetail = value;
+            OnPropertyChanged(nameof(AfterDetail));
+            OnPropertyChanged(nameof(HasAfterDetail));
+        }
+    }
+
+    public bool HasBeforeDetail => _beforeDetail.Length > 0;
+
+    public bool HasAfterDetail => _afterDetail.Length > 0;
 
     public bool HasBefore => _before is not null;
 

@@ -12,6 +12,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="AssimpNetter" Version="6.0.5" />
     <PackageReference Include="BitMiracle.LibTiff.NET" Version="2.4.660" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.10.1" />
     <PackageReference Include="Svg.Skia" Version="4.9.1" />
@@ -28,5 +29,8 @@
     <Compile Include="..\..\src\LineFold.cs" Link="LineFold.cs" />
     <Compile Include="..\..\src\DiffSyntax.cs" Link="DiffSyntax.cs" />
     <Compile Include="..\..\src\ImageRaster.cs" Link="ImageRaster.cs" />
+    <Compile Include="..\..\src\FbxPreview.cs" Link="FbxPreview.cs" />
+    <Content Include="Fixtures\box.fbx" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Fixtures\animation.fbx" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

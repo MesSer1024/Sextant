@@ -7,6 +7,22 @@ namespace Sextant.Git;
 public sealed partial class RepositorySession
 {
     private const int LfsProbeLimit = 30;
+    private readonly object _lfsAccountLock = new();
+    private IGitHubLogin? _gitHubLogin;
+    private List<GitHubAccount>? _gitHubAccounts;
+    private string? _lfsToken;
+    private bool _lfsAccessGaveUp;
+
+    internal void UseGitHubLogin(IGitHubLogin login)
+    {
+        lock (_lfsAccountLock)
+        {
+            _gitHubLogin = login;
+            _gitHubAccounts = null;
+            _lfsToken = null;
+            _lfsAccessGaveUp = false;
+        }
+    }
 
     public Task AddWorktreeAsync(string path, string? newBranch, string? startPoint, CancellationToken cancellationToken) =>
         RunAsync(async ct =>
@@ -62,13 +78,15 @@ public sealed partial class RepositorySession
 
     public Task<ImagePreview?> PreviewImageAsync(ImageRequest request, CancellationToken cancellationToken)
     {
-        if (!ImageFiles.IsImagePath(request.Path))
+        var fbx = ModelFiles.IsFbxPath(request.Path);
+        if (!ImageFiles.IsImagePath(request.Path) && !fbx)
             return Task.FromResult<ImagePreview?>(null);
+        var kind = fbx ? "FBX" : "image";
         return RunAsync(async ct =>
         {
             var beforePath = string.IsNullOrEmpty(request.BeforePath) ? request.Path : request.BeforePath;
-            var before = await ImageSideAsync(beforePath, request.BeforeRevision, request.BeforeIsWorktree, ct).ConfigureAwait(false);
-            var after = await ImageSideAsync(request.Path, request.AfterRevision, request.AfterIsWorktree, ct).ConfigureAwait(false);
+            var before = await ImageSideAsync(beforePath, request.BeforeRevision, request.BeforeIsWorktree, kind, ct).ConfigureAwait(false);
+            var after = await ImageSideAsync(request.Path, request.AfterRevision, request.AfterIsWorktree, kind, ct).ConfigureAwait(false);
             if (before.Bytes is null && after.Bytes is null && before.Notice.Length == 0 && after.Notice.Length == 0)
                 return null;
             var notice = new StringBuilder();
@@ -101,7 +119,9 @@ public sealed partial class RepositorySession
             {
                 if (revision is not null)
                 {
-                    var output = Checked(await ExecuteAsync(GitCommands.CatFileFiltered(_toplevel, GitCommands.ObjectSpec(revision, path)), null, inner).ConfigureAwait(false));
+                    var output = await ExecuteLfsAsync(GitCommands.CatFileFiltered(_toplevel, GitCommands.ObjectSpec(revision, path)), null, inner).ConfigureAwait(false);
+                    if (output.ExitCode != 0)
+                        throw new GitCommandFailedException(output);
                     if (output.Stdout.LongLength > HistoryLimits.MaxPreviewBytes)
                         return BlobLoad.OverLimit;
                     return new BlobLoad(output.Stdout, false);
@@ -109,11 +129,12 @@ public sealed partial class RepositorySession
 
                 if (string.IsNullOrEmpty(pointerText))
                     return BlobLoad.Empty;
-                var smudged = Checked(await ExecuteAsync(
+                var smudged = await ExecuteLfsAsync(
                     GitCommands.LfsSmudge(_toplevel),
-                    null,
-                    inner,
-                    standardInput: Encoding.UTF8.GetBytes(pointerText)).ConfigureAwait(false));
+                    Encoding.UTF8.GetBytes(pointerText),
+                    inner).ConfigureAwait(false);
+                if (smudged.ExitCode != 0)
+                    throw new GitCommandFailedException(smudged);
                 if (smudged.Stdout.LongLength > HistoryLimits.MaxPreviewBytes)
                     return BlobLoad.OverLimit;
                 return new BlobLoad(smudged.Stdout, false);
@@ -228,6 +249,7 @@ public sealed partial class RepositorySession
         string path,
         string? revision,
         bool worktree,
+        string kind,
         CancellationToken cancellationToken)
     {
         if (worktree)
@@ -243,18 +265,18 @@ public sealed partial class RepositorySession
             if (!TryInspectLocal(full, out var pointer, out var length))
                 return new ImageBytes(null, "No file in this version.");
             if (pointer is not null)
-                return await ExpandWorktreePointerAsync(full, path, pointer, cancellationToken).ConfigureAwait(false);
+                return await ExpandWorktreePointerAsync(full, path, pointer, kind, cancellationToken).ConfigureAwait(false);
             if (!PreviewLimit.Allows(length))
-                return new ImageBytes(null, "This image is larger than 8 MB, so it was not loaded.");
+                return new ImageBytes(null, TooLarge(kind));
             return new ImageBytes(await File.ReadAllBytesAsync(full, cancellationToken).ConfigureAwait(false), "");
         }
 
         if (revision is null)
             return new ImageBytes(null, "No file in this version.");
-        return await _scheduler.ReadAsync(inner => ReadImageBlobAsync(revision, path, inner), cancellationToken).ConfigureAwait(false);
+        return await _scheduler.ReadAsync(inner => ReadImageBlobAsync(revision, path, kind, inner), cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task<ImageBytes> ReadImageBlobAsync(string revision, string path, CancellationToken cancellationToken)
+    private async Task<ImageBytes> ReadImageBlobAsync(string revision, string path, string kind, CancellationToken cancellationToken)
     {
         var spec = GitCommands.ObjectSpec(revision, path);
         var sizeOutput = await ExecuteAsync(GitCommands.CatFileSize(_toplevel, spec), null, cancellationToken).ConfigureAwait(false);
@@ -262,20 +284,20 @@ public sealed partial class RepositorySession
         if (sizeOutput.ExitCode != 0 || !TrySize(sizeOutput.Stdout, out var size))
             return new ImageBytes(null, "No file in this version.");
         if (!PreviewLimit.Allows(size))
-            return new ImageBytes(null, "This image is larger than 8 MB, so it was not loaded.");
+            return new ImageBytes(null, TooLarge(kind));
         var blob = await ExecuteAsync(GitCommands.CatFileBlob(_toplevel, spec), null, cancellationToken).ConfigureAwait(false);
         Track(blob);
         if (blob.ExitCode != 0 || blob.Stdout.LongLength > HistoryLimits.MaxPreviewBytes)
             return new ImageBytes(null, "No file in this version.");
         if (LfsPointers.TryParseBytes(blob.Stdout, out var lfs) && lfs is not null)
-            return await ExpandPointerAsync(revision, path, lfs, blob.Stdout, cancellationToken).ConfigureAwait(false);
+            return await ExpandPointerAsync(revision, path, lfs, blob.Stdout, kind, cancellationToken).ConfigureAwait(false);
         return new ImageBytes(blob.Stdout, "");
     }
 
-    private async Task<ImageBytes> ExpandWorktreePointerAsync(string full, string path, LfsPointer pointer, CancellationToken cancellationToken)
+    private async Task<ImageBytes> ExpandWorktreePointerAsync(string full, string path, LfsPointer pointer, string kind, CancellationToken cancellationToken)
     {
         if (!PreviewLimit.Allows(pointer.Size))
-            return new ImageBytes(null, "This image is larger than 8 MB, so it was not loaded.");
+            return new ImageBytes(null, TooLarge(kind));
         byte[] pointerBytes;
         try
         {
@@ -283,39 +305,41 @@ public sealed partial class RepositorySession
         }
         catch (IOException)
         {
-            return new ImageBytes(null, "The image could not be downloaded.");
+            return new ImageBytes(null, DownloadFailed(kind));
         }
         catch (UnauthorizedAccessException)
         {
-            return new ImageBytes(null, "The image could not be downloaded.");
+            return new ImageBytes(null, DownloadFailed(kind));
         }
 
         return await _scheduler.ReadAsync(
-            inner => ExpandPointerAsync(null, path, pointer, pointerBytes, inner),
+            inner => ExpandPointerAsync(null, path, pointer, pointerBytes, kind, inner),
             cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
-    /// Turns a pointer into image bytes on stdout. The size is checked before any smudge, and nothing is written into the worktree.
+    /// Turns a pointer into preview bytes on stdout. The size is checked before any smudge, and nothing is written into the worktree.
     /// </summary>
     private async Task<ImageBytes> ExpandPointerAsync(
         string? revision,
         string path,
         LfsPointer pointer,
         byte[] pointerBytes,
+        string kind,
         CancellationToken cancellationToken)
     {
         if (!PreviewLimit.Allows(pointer.Size))
-            return new ImageBytes(null, "This image is larger than 8 MB, so it was not loaded.");
+            return new ImageBytes(null, TooLarge(kind));
 
+        var reason = "";
         if (revision is not null)
         {
-            var filtered = await ExecuteAsync(
+            var filtered = await ExecuteLfsAsync(
                 GitCommands.CatFileFiltered(_toplevel, GitCommands.ObjectSpec(revision, path)),
                 null,
                 cancellationToken).ConfigureAwait(false);
-            Track(filtered);
-            if (ImageBytesOf(filtered) is { } fromFilter)
+            reason = filtered.StandardError;
+            if (ImageBytesOf(filtered, kind) is { } fromFilter)
                 return fromFilter;
         }
 
@@ -332,34 +356,199 @@ public sealed partial class RepositorySession
             var id = Encoding.UTF8.GetString(stored.Stdout).Trim();
             if (stored.ExitCode == 0 && id.Length > 0)
             {
-                var filtered = await ExecuteAsync(
+                var filtered = await ExecuteLfsAsync(
                     GitCommands.CatFileFilteredPath(_toplevel, path, id),
                     null,
                     cancellationToken).ConfigureAwait(false);
-                Track(filtered);
-                if (ImageBytesOf(filtered) is { } fromPath)
+                if (filtered.StandardError.Length > 0)
+                    reason = filtered.StandardError;
+                if (ImageBytesOf(filtered, kind) is { } fromPath)
                     return fromPath;
             }
         }
 
-        var smudged = await ExecuteAsync(
+        var smudged = await ExecuteLfsAsync(
             GitCommands.LfsSmudge(_toplevel),
-            null,
-            cancellationToken,
-            standardInput: pointerBytes).ConfigureAwait(false);
-        Track(smudged);
-        return ImageBytesOf(smudged) ?? new ImageBytes(null, "The image could not be downloaded.");
+            pointerBytes,
+            cancellationToken).ConfigureAwait(false);
+        if (smudged.StandardError.Length > 0)
+            reason = smudged.StandardError;
+        return ImageBytesOf(smudged, kind) ?? new ImageBytes(null, DownloadFailed(kind, reason));
     }
 
-    private static ImageBytes? ImageBytesOf(GitOutput output)
+    /// <summary>
+    /// Runs a command that can smudge an LFS pointer. git uses the active gh account. When that account cannot see the
+    /// repository, the same command is tried with each other github.com account already signed in to gh. The token stays
+    /// on that process and out of the command log. A working account is reused for the rest of the session.
+    /// </summary>
+    private async Task<GitOutput> ExecuteLfsAsync(
+        IReadOnlyList<string> arguments,
+        byte[]? standardInput,
+        CancellationToken cancellationToken)
+    {
+        var token = LfsToken();
+        var gaveUp = LfsGaveUp();
+        var output = await RunLfsAttemptAsync(arguments, standardInput, token, cancellationToken).ConfigureAwait(false);
+        if (LfsContent(output))
+            return output;
+
+        var access = GitHubAccounts.IsAccessFailure(output.StandardError);
+        if (!string.IsNullOrEmpty(token) && access)
+            ClearLfsToken();
+        if (!access || gaveUp || !CanRetryGitHubLogin())
+            return output;
+
+        var tried = false;
+        foreach (var account in await OtherAccountsAsync(cancellationToken).ConfigureAwait(false))
+        {
+            var next = await GitHubTokenAsync(account.User, cancellationToken).ConfigureAwait(false);
+            if (string.IsNullOrEmpty(next) || string.Equals(next, token, StringComparison.Ordinal))
+                continue;
+            tried = true;
+            var retried = await RunLfsAttemptAsync(arguments, standardInput, next, cancellationToken).ConfigureAwait(false);
+            if (LfsContent(retried) || !GitHubAccounts.IsAccessFailure(retried.StandardError))
+            {
+                RememberLfsToken(next);
+                return retried;
+            }
+        }
+
+        if (tried)
+            MarkLfsGaveUp();
+        return output;
+    }
+
+    private async Task<GitOutput> RunLfsAttemptAsync(
+        IReadOnlyList<string> arguments,
+        byte[]? standardInput,
+        string? token,
+        CancellationToken cancellationToken)
+    {
+        IReadOnlyDictionary<string, string>? environment = null;
+        if (!string.IsNullOrEmpty(token))
+            environment = new Dictionary<string, string> { ["GH_TOKEN"] = token };
+        var output = await ExecuteAsync(arguments, null, cancellationToken, environment, standardInput).ConfigureAwait(false);
+        Track(output);
+        return output;
+    }
+
+    private static bool LfsContent(GitOutput output) =>
+        output.ExitCode == 0
+        && output.Stdout.Length > 0
+        && !(LfsPointers.TryParseBytes(output.Stdout, out var pointer) && pointer is not null);
+
+    private bool CanRetryGitHubLogin()
+    {
+        lock (_stateLock)
+        {
+            if (_config.TryGetValue("lfs.url", out var lfsUrl)
+                && lfsUrl.Contains("://", StringComparison.Ordinal)
+                && !lfsUrl.Contains("github.com", StringComparison.OrdinalIgnoreCase))
+                return false;
+            foreach (var pair in _config)
+            {
+                if (!pair.Key.StartsWith("remote.", StringComparison.OrdinalIgnoreCase)
+                    || !pair.Key.EndsWith(".url", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if (pair.Value.Contains("github.com", StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
+    private string? LfsToken()
+    {
+        lock (_lfsAccountLock)
+            return _lfsToken;
+    }
+
+    private bool LfsGaveUp()
+    {
+        lock (_lfsAccountLock)
+            return _lfsAccessGaveUp;
+    }
+
+    private void ClearLfsToken()
+    {
+        lock (_lfsAccountLock)
+            _lfsToken = null;
+    }
+
+    private void RememberLfsToken(string token)
+    {
+        lock (_lfsAccountLock)
+        {
+            _lfsToken = token;
+            _lfsAccessGaveUp = false;
+        }
+    }
+
+    private void MarkLfsGaveUp()
+    {
+        lock (_lfsAccountLock)
+            _lfsAccessGaveUp = true;
+    }
+
+    private IGitHubLogin GitHubLogin()
+    {
+        lock (_lfsAccountLock)
+        {
+            _gitHubLogin ??= GitHubAccounts.Login(_runner);
+            return _gitHubLogin;
+        }
+    }
+
+    private async Task<IReadOnlyList<GitHubAccount>> OtherAccountsAsync(CancellationToken cancellationToken)
+    {
+        List<GitHubAccount>? cached;
+        lock (_lfsAccountLock)
+            cached = _gitHubAccounts;
+        if (cached is null)
+        {
+            var loaded = await GitHubLogin().AccountsAsync(cancellationToken).ConfigureAwait(false);
+            lock (_lfsAccountLock)
+            {
+                _gitHubAccounts ??= loaded.ToList();
+                cached = _gitHubAccounts;
+            }
+        }
+
+        var others = new List<GitHubAccount>();
+        foreach (var account in cached)
+        {
+            if (!account.Active && string.Equals(account.Host, "github.com", StringComparison.OrdinalIgnoreCase))
+                others.Add(account);
+        }
+
+        return others;
+    }
+
+    private async Task<string?> GitHubTokenAsync(string user, CancellationToken cancellationToken)
+    {
+        var token = await GitHubLogin().TokenAsync(user, cancellationToken).ConfigureAwait(false);
+        return string.IsNullOrEmpty(token) ? null : token;
+    }
+
+    private static ImageBytes? ImageBytesOf(GitOutput output, string kind)
     {
         if (output.ExitCode != 0 || output.Stdout.Length == 0)
             return null;
         if (output.Stdout.LongLength > HistoryLimits.MaxPreviewBytes)
-            return new ImageBytes(null, "This image is larger than 8 MB, so it was not loaded.");
+            return new ImageBytes(null, TooLarge(kind));
         if (LfsPointers.TryParseBytes(output.Stdout, out var still) && still is not null)
             return null;
         return new ImageBytes(output.Stdout, "");
+    }
+
+    private static string TooLarge(string kind) => "This " + kind + " is larger than 8 MB, so it was not loaded.";
+
+    private static string DownloadFailed(string kind, string stderr = "")
+    {
+        var hint = GitHubAccounts.AccessHint(stderr);
+        var message = "The " + kind + " could not be downloaded.";
+        return hint.Length == 0 ? message : message + " " + hint;
     }
 
     private readonly record struct ImageBytes(byte[]? Bytes, string Notice);
