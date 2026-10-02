@@ -265,6 +265,9 @@ public sealed class DiffSideRow : DiffRow
 
 public sealed class DiffFileRow : DiffRow
 {
+    /// <summary>Repository path this header names. Scroll-to-file matches this, not the display label.</summary>
+    public string Path { get; init; } = "";
+
     public required string Label { get; init; }
 }
 

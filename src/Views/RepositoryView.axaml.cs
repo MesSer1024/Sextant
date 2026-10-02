@@ -5,7 +5,10 @@ using Avalonia.Interactivity;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Sextant;
+using Sextant.Git.Parsing;
 using Sextant.ViewModels;
+using System.Collections.ObjectModel;
+using System.Collections.Specialized;
 using System.ComponentModel;
 
 namespace Sextant.Views;
@@ -18,6 +21,11 @@ public partial class RepositoryView : UserControl
     private bool _scrollHooked;
     private RepositoryViewModel? _scrollVm;
     private RepositoryViewModel? _watched;
+    private ResetCollection<ImageCompareRow>? _images;
+    private ObservableCollection<DiffRow>? _diffRows;
+    private string? _jumpPath;
+    private string? _jumpOriginal;
+    private bool _followImages;
     private string _appliedCommandLog = "";
 
     public RepositoryView()
@@ -58,12 +66,7 @@ public partial class RepositoryView : UserControl
             PublishPanes();
         UnwatchPanes();
         UnhookFileScroll();
-        if (_watched is not null)
-        {
-            _watched.PropertyChanged -= OnViewModelPropertyChanged;
-            _watched = null;
-        }
-
+        UnwatchViewModel();
         base.OnUnloaded(e);
     }
 
@@ -72,15 +75,151 @@ public partial class RepositoryView : UserControl
         var next = DataContext as RepositoryViewModel;
         if (ReferenceEquals(_watched, next))
             return;
-        if (_watched is not null)
-            _watched.PropertyChanged -= OnViewModelPropertyChanged;
+        UnwatchViewModel();
         _watched = next;
+        if (_watched is null)
+            return;
+        _watched.PropertyChanged += OnViewModelPropertyChanged;
+        _watched.JumpToFile += OnJumpToFile;
+        _images = _watched.ImageCompares;
+        _images.CollectionChanged += OnImagesChanged;
+        _diffRows = _watched.DiffRows;
+        _diffRows.CollectionChanged += OnDiffRowsChanged;
+        ApplyCommandLog(_watched.CommandLog);
+    }
+
+    private void UnwatchViewModel()
+    {
         if (_watched is not null)
         {
-            _watched.PropertyChanged += OnViewModelPropertyChanged;
-            ApplyCommandLog(_watched.CommandLog);
+            _watched.PropertyChanged -= OnViewModelPropertyChanged;
+            _watched.JumpToFile -= OnJumpToFile;
+            _watched = null;
+        }
+
+        if (_images is not null)
+        {
+            _images.CollectionChanged -= OnImagesChanged;
+            _images = null;
+        }
+
+        if (_diffRows is not null)
+        {
+            _diffRows.CollectionChanged -= OnDiffRowsChanged;
+            _diffRows = null;
         }
     }
+
+    private void OnFilePointerReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        if (e.InitialPressMouseButton != MouseButton.Left)
+            return;
+        if (e.Source is not Visual source)
+            return;
+        if (source.FindAncestorOfType<ListBoxItem>(includeSelf: true) is null)
+            return;
+        if (source.FindAncestorOfType<Button>(includeSelf: true) is not null)
+            return;
+        if (DataContext is RepositoryViewModel vm)
+            vm.RevealSelectedFile();
+    }
+
+    private void OnJumpToFile(string path, string? original)
+    {
+        _jumpPath = path;
+        _jumpOriginal = original;
+        _followImages = true;
+        ScrollDiffTo(path, original);
+        ScrollImageTo(path, original);
+    }
+
+    private void OnImagesChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        if (!_followImages || _jumpPath is not { } path)
+            return;
+        var original = _jumpOriginal;
+        Dispatcher.UIThread.Post(() => ScrollImageTo(path, original), DispatcherPriority.Loaded);
+    }
+
+    private void OnDiffRowsChanged(object? sender, NotifyCollectionChangedEventArgs e) =>
+        _followImages = false;
+
+    private void ScrollDiffTo(string path, string? original)
+    {
+        if (FindHeader(path, original) is not { } row)
+            return;
+        DiffList.ScrollIntoView(row);
+        Dispatcher.UIThread.Post(() => AlignDiff(row, 0), DispatcherPriority.Loaded);
+    }
+
+    private void AlignDiff(DiffFileRow row, int pass)
+    {
+        var scroll = DiffList.GetVisualDescendants().OfType<ScrollViewer>().FirstOrDefault();
+        var container = DiffList.ContainerFromItem(row) as Control;
+        if (scroll is null || container is null)
+        {
+            if (pass < 6)
+                Dispatcher.UIThread.Post(() => AlignDiff(row, pass + 1), DispatcherPriority.Loaded);
+            return;
+        }
+
+        var point = container.TranslatePoint(default, scroll);
+        if (point is null)
+            return;
+        var y = Math.Max(0, scroll.Offset.Y + point.Value.Y);
+        if (Math.Abs(scroll.Offset.Y - y) > 0.5)
+            scroll.Offset = new Vector(scroll.Offset.X, y);
+        if (pass < 2)
+            Dispatcher.UIThread.Post(() => AlignDiff(row, pass + 1), DispatcherPriority.Background);
+    }
+
+    private DiffFileRow? FindHeader(string path, string? original)
+    {
+        foreach (var item in DiffList.Items)
+        {
+            if (item is DiffFileRow row && MatchesFile(row.Path.Length > 0 ? row.Path : row.Label, path, original))
+                return row;
+        }
+
+        return null;
+    }
+
+    private void ScrollImageTo(string path, string? original, int pass = 0)
+    {
+        if (!_followImages || !string.Equals(_jumpPath, path, StringComparison.Ordinal))
+            return;
+        if (DataContext is not RepositoryViewModel vm)
+            return;
+        var index = -1;
+        for (var i = 0; i < vm.ImageCompares.Count; i++)
+        {
+            if (MatchesFile(vm.ImageCompares[i].Path, path, original))
+            {
+                index = i;
+                break;
+            }
+        }
+
+        if (index < 0)
+            return;
+        if (ImageRows.ContainerFromIndex(index) is not Control container)
+        {
+            if (pass < 8)
+                Dispatcher.UIThread.Post(() => ScrollImageTo(path, original, pass + 1), DispatcherPriority.Loaded);
+            return;
+        }
+
+        var point = container.TranslatePoint(default, ImageStrip);
+        if (point is null)
+            return;
+        var y = Math.Max(0, ImageStrip.Offset.Y + point.Value.Y);
+        if (Math.Abs(ImageStrip.Offset.Y - y) > 0.5)
+            ImageStrip.Offset = new Vector(ImageStrip.Offset.X, y);
+    }
+
+    private static bool MatchesFile(string candidate, string path, string? original) =>
+        DiffParser.SameFile(candidate, path)
+        || (original is { Length: > 0 } old && DiffParser.SameFile(candidate, old));
 
     private void ApplyCommandLog(string text)
     {

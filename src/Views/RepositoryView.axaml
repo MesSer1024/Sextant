@@ -234,7 +234,8 @@
                     <Button Content="Unstage all" Command="{Binding UnstageAllCommand}" IsEnabled="{Binding CanUnstageAll}"/>
                 </StackPanel>
 
-                <ListBox x:Name="FileList" Grid.Row="2" ItemsSource="{Binding Files}" SelectedItem="{Binding SelectedFile}">
+                <ListBox x:Name="FileList" Grid.Row="2" ItemsSource="{Binding Files}" SelectedItem="{Binding SelectedFile}"
+                         PointerReleased="OnFilePointerReleased">
                     <ListBox.ItemsPanel>
                         <ItemsPanelTemplate>
                             <VirtualizingStackPanel/>
@@ -284,13 +285,18 @@
                         <TextBlock Text="{Binding LfsNotice}" IsVisible="{Binding HasLfsNotice}" TextWrapping="Wrap" Margin="0,4,0,0"/>
                         <Button Classes="flat" Content="Show the file" Command="{Binding ShowLfsCommand}" IsVisible="{Binding ShowLfsDownload}" HorizontalAlignment="Left" Margin="0,4,0,0"/>
                     </StackPanel>
-                    <ScrollViewer DockPanel.Dock="Top" IsVisible="{Binding ShowingImages}" MaxHeight="640"
+                    <ScrollViewer x:Name="ImageStrip" DockPanel.Dock="Top" IsVisible="{Binding ShowingImages}" MaxHeight="640"
                                   HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
-                        <ItemsControl ItemsSource="{Binding ImageCompares}" Margin="8,0,8,8">
+                        <ItemsControl x:Name="ImageRows" ItemsSource="{Binding ImageCompares}" Margin="8,0,8,8">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate x:DataType="vm:ImageCompareRow">
                                     <StackPanel Margin="0,0,0,12">
-                                        <TextBlock Text="{Binding Path}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" Margin="0,0,0,6"/>
+                                        <Border Margin="0,0,0,6" Padding="10,6" CornerRadius="6" BorderThickness="1"
+                                                HorizontalAlignment="Stretch"
+                                                Background="{DynamicResource SystemControlBackgroundChromeMediumBrush}"
+                                                BorderBrush="{DynamicResource SystemControlForegroundBaseMediumLowBrush}">
+                                            <TextBlock Text="{Binding Path}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                                        </Border>
                                         <Grid ColumnDefinitions="*,12,*">
                                             <Border Padding="8" MinHeight="280" Background="#1A000000" BorderThickness="1"
                                                     BorderBrush="{DynamicResource SystemControlForegroundBaseMediumLowBrush}">
@@ -331,7 +337,13 @@
                         <TextBlock Grid.Column="4" Text="Theirs" FontWeight="SemiBold" Opacity="0.75"/>
                     </Grid>
                     <Grid>
-                        <views:CopyListBox ItemsSource="{Binding DiffRows}" Background="Transparent" IsVisible="{Binding ShowingDiff}">
+                        <views:CopyListBox x:Name="DiffList" ItemsSource="{Binding DiffRows}" Background="Transparent" IsVisible="{Binding ShowingDiff}">
+                            <views:CopyListBox.Styles>
+                                <Style Selector="ListBoxItem">
+                                    <Setter Property="HorizontalAlignment" Value="Stretch"/>
+                                    <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                </Style>
+                            </views:CopyListBox.Styles>
                             <views:CopyListBox.ItemsPanel>
                                 <ItemsPanelTemplate>
                                     <VirtualizingStackPanel/>
@@ -357,7 +369,13 @@
                                     </Grid>
                                 </DataTemplate>
                                 <DataTemplate DataType="vm:DiffFileRow" x:DataType="vm:DiffFileRow">
-                                    <views:CopyableText CopyKey="span" Text="{Binding Label}" FontWeight="SemiBold" Margin="8,8,8,2" TextTrimming="CharacterEllipsis"/>
+                                    <Border Margin="8,10,8,4" Padding="10,6" CornerRadius="6" BorderThickness="1"
+                                            HorizontalAlignment="Stretch"
+                                            Background="{DynamicResource SystemControlBackgroundChromeMediumBrush}"
+                                            BorderBrush="{DynamicResource SystemControlForegroundBaseMediumLowBrush}">
+                                        <views:CopyableText CopyKey="span" Text="{Binding Label}" FontWeight="SemiBold"
+                                                            HorizontalAlignment="Stretch" TextTrimming="CharacterEllipsis"/>
+                                    </Border>
                                 </DataTemplate>
                             </views:CopyListBox.DataTemplates>
                         </views:CopyListBox>

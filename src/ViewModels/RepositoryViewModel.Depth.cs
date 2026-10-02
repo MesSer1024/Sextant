@@ -594,7 +594,7 @@ public partial class RepositoryViewModel
 
         DiffRows.Clear();
         var language = DiffSyntax.Language(path);
-        DiffRows.Add(new DiffFileRow { Label = path + "  (loaded)" });
+        DiffRows.Add(new DiffFileRow { Path = path, Label = path + "  (loaded)" });
         foreach (var line in lines)
             AddFoldedLine("  " + line, language, DiffColors.Clear, false, "", UiCommands.Disabled);
 

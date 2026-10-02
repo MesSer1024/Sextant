@@ -207,6 +207,37 @@ public class NameStatusAndDiffTests
     }
 
     [Fact]
+    public void Parse_files_keeps_plain_quoted_and_escaped_paths()
+    {
+        var patch = """
+            diff --git a/src/a.txt b/src/a.txt
+            --- a/src/a.txt
+            +++ b/src/a.txt
+            @@ -1 +1 @@
+            -a
+            +b
+            diff --git "a/my file.txt" "b/my file.txt"
+            --- "a/my file.txt"
+            +++ "b/my file.txt"
+            @@ -1 +1 @@
+            -c
+            +d
+            diff --git "a/caf\303\251.txt" "b/caf\303\251.txt"
+            @@ -1 +1 @@
+            -e
+            +f
+            """;
+        var files = DiffParser.ParseFiles(patch.Replace("\r\n", "\n", StringComparison.Ordinal));
+        Assert.Equal(3, files.Count);
+        Assert.Equal("src/a.txt", files[0].Path);
+        Assert.Equal("my file.txt", files[1].Path);
+        Assert.Equal("café.txt", files[2].Path);
+        Assert.True(DiffParser.SameFile(files[1].Path, "my file.txt"));
+        Assert.True(DiffParser.SameFile(@"dir\a.txt", "dir/a.txt"));
+        Assert.False(DiffParser.SameFile("a.txt", "b.txt"));
+    }
+
+    [Fact]
     public async Task Parses_a_live_rename()
     {
         using var repo = new TempRepo();

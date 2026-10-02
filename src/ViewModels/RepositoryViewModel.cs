@@ -36,6 +36,14 @@ public partial class RepositoryViewModel : ViewModelBase
     private string _commandSignature = "";
     private string? _rawPatch;
     private bool _viewingStaged;
+    private bool _diffReady;
+    private bool _allFilesShown;
+    private bool _armJump;
+    private string? _jumpPath;
+    private string? _jumpOriginal;
+
+    /// <summary>The all-files diff should move this file's header to the top of the diff.</summary>
+    public event Action<string, string?>? JumpToFile;
     private bool _wasMerge;
     private string? _shownSha;
 
@@ -491,9 +499,73 @@ public partial class RepositoryViewModel : ViewModelBase
             return;
         if (value is { IsHeader: true })
             return;
+        if (TryRevealOpenFile(value))
+            return;
         _allowLarge = false;
+        if (AllFiles && !ShowingBlame && value is not null)
+        {
+            _armJump = true;
+            _jumpPath = value.Path;
+            _jumpOriginal = value.OriginalPath;
+        }
+        else
+        {
+            _armJump = false;
+        }
+
         _ = LoadDiffAsync();
     }
+
+    /// <summary>A click on the file that is already selected. The selection does not change, so scroll from here.</summary>
+    public void RevealSelectedFile() => TryRevealOpenFile(SelectedFile);
+
+    private bool TryRevealOpenFile(FileRowViewModel? value)
+    {
+        if (!AllFiles || ShowingBlame || !_diffReady || !_allFilesShown || value is not { IsHeader: false } file)
+            return false;
+        if (!SameOpenDiff(file))
+            return false;
+        if (!DiffHasFile(file) && !ImageHasFile(file))
+            return false;
+        JumpToFile?.Invoke(file.Path, file.OriginalPath);
+        return true;
+    }
+
+    private bool SameOpenDiff(FileRowViewModel file)
+    {
+        var range = _rangeOlder is not null && _rangeNewer is not null;
+        var workingCopy = !range && (SelectedGraphRow is null || SelectedGraphRow.IsWorkingCopy);
+        return !workingCopy || file.FromStagedList == _viewingStaged;
+    }
+
+    private bool DiffHasFile(FileRowViewModel file)
+    {
+        foreach (var row in DiffRows)
+        {
+            if (row is DiffFileRow header && HeaderMatches(header, file))
+                return true;
+        }
+
+        return false;
+    }
+
+    private bool ImageHasFile(FileRowViewModel file)
+    {
+        foreach (var row in ImageCompares)
+        {
+            if (HeaderMatches(row.Path, file))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static bool HeaderMatches(DiffFileRow header, FileRowViewModel file) =>
+        HeaderMatches(header.Path.Length > 0 ? header.Path : header.Label, file);
+
+    private static bool HeaderMatches(string header, FileRowViewModel file) =>
+        DiffParser.SameFile(header, file.Path)
+        || (file.OriginalPath is { Length: > 0 } original && DiffParser.SameFile(header, original));
 
     private async Task LoadCoreAsync()
     {
@@ -1643,8 +1715,13 @@ public partial class RepositoryViewModel : ViewModelBase
     {
         if (_lifetime.IsCancellationRequested)
             return;
+        var armJump = _armJump;
+        var jumpPath = _jumpPath;
+        var jumpOriginal = _jumpOriginal;
+        _armJump = false;
         if (ShowingBlame)
         {
+            _allFilesShown = false;
             await LoadBlameAsync();
             return;
         }
@@ -1656,6 +1733,8 @@ public partial class RepositoryViewModel : ViewModelBase
         if (_session is null || (!AllFiles && file is null))
         {
             ClearDiff(workingCopy ? "Select a file." : "");
+            _diffReady = true;
+            _allFilesShown = false;
             return;
         }
 
@@ -1663,6 +1742,7 @@ public partial class RepositoryViewModel : ViewModelBase
         if (!merge)
             ClearMerge();
 
+        _diffReady = false;
         ReplaceDetails();
         var token = _details!.Token;
         var allowLarge = _allowLarge;
@@ -1705,6 +1785,8 @@ public partial class RepositoryViewModel : ViewModelBase
                 return;
             RememberObjects(range, workingCopy, file);
             RenderDiff(document, file, workingCopy);
+            if (armJump && AllFiles && jumpPath is { Length: > 0 })
+                JumpToFile?.Invoke(jumpPath, jumpOriginal);
             await LoadImageAsync(file, workingCopy, range, token);
         }
         catch (OperationCanceledException)
@@ -1764,6 +1846,8 @@ public partial class RepositoryViewModel : ViewModelBase
         HasDiffNotice = false;
         DiffNotice = "";
         ShowingMerge = true;
+        _allFilesShown = false;
+        _diffReady = true;
     }
 
     private void ClearMerge()
@@ -1787,16 +1871,20 @@ public partial class RepositoryViewModel : ViewModelBase
         {
             HasDiffNotice = true;
             DiffNotice = "This diff is large. Load it only if you need the whole file.";
+            _allFilesShown = false;
+            _diffReady = true;
             return;
         }
 
         if (AllFiles)
         {
+            _allFilesShown = true;
             var files = string.IsNullOrEmpty(document.RawPatch) ? [] : DiffParser.ParseFiles(document.RawPatch);
             if (files.Count == 0)
             {
                 HasDiffNotice = true;
                 DiffNotice = "No textual changes.";
+                _diffReady = true;
                 return;
             }
 
@@ -1804,14 +1892,18 @@ public partial class RepositoryViewModel : ViewModelBase
             DiffNotice = "";
             foreach (var entry in files)
             {
-                DiffRows.Add(new DiffFileRow { Label = string.IsNullOrEmpty(entry.Path) ? "Diff" : entry.Path });
+                var label = string.IsNullOrEmpty(entry.Path) ? "Diff" : entry.Path;
+                DiffRows.Add(new DiffFileRow { Path = entry.Path, Label = label });
                 AppendFileDiff(entry.Document, workingCopy, KindForDiff(entry.Document), path: entry.Path, notes: document.LfsFiles);
             }
 
+            _diffReady = true;
             return;
         }
 
+        _allFilesShown = false;
         AppendFileDiff(document, workingCopy, file?.Kind ?? ChangeKind.Modified, notice: true, path: file?.Path, notes: document.LfsFiles);
+        _diffReady = true;
     }
 
     private void AppendFileDiff(

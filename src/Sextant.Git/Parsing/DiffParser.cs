@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace Sextant.Git.Parsing;
@@ -91,18 +92,145 @@ public static partial class DiffParser
         return files;
     }
 
+    /// <summary>
+    /// A diff header path and a file-list path name the same file.
+    /// Slashes are ignored so a Windows path still matches git's forward slashes.
+    /// </summary>
+    public static bool SameFile(string left, string right)
+    {
+        if (left.Length == 0 || right.Length == 0)
+            return false;
+        if (string.Equals(left, right, StringComparison.Ordinal))
+            return true;
+        return string.Equals(left.Replace('\\', '/'), right.Replace('\\', '/'), StringComparison.Ordinal);
+    }
+
     private static string PathFromHeader(string slice)
     {
         var lineEnd = slice.IndexOf('\n');
         var line = lineEnd < 0 ? slice : slice[..lineEnd];
-        const string marker = " b/";
-        var at = line.LastIndexOf(marker, StringComparison.Ordinal);
-        if (at < 0)
-            return line;
-        var path = line[(at + marker.Length)..];
-        if (path.Length >= 2 && path[0] == '"' && path[^1] == '"')
-            path = path[1..^1];
-        return path;
+        const string prefix = "diff --git ";
+        if (line.StartsWith(prefix, StringComparison.Ordinal))
+            line = line[prefix.Length..];
+
+        string path;
+        if (line.IndexOf('"') >= 0 && TrySecondToken(line, out var token))
+            path = token.StartsWith("b/", StringComparison.Ordinal) ? token[2..] : token;
+        else
+        {
+            // The marker includes the space, so the text after it is already the b-side path.
+            const string marker = " b/";
+            var at = line.LastIndexOf(marker, StringComparison.Ordinal);
+            path = at < 0 ? line : line[(at + marker.Length)..];
+        }
+
+        return DecodeGitPath(path);
+    }
+
+    private static bool TrySecondToken(string line, out string token)
+    {
+        token = "";
+        if (!TryReadToken(line, 0, out _, out var next))
+            return false;
+        return TryReadToken(line, next, out token, out _);
+    }
+
+    private static bool TryReadToken(string line, int start, out string token, out int next)
+    {
+        token = "";
+        next = start;
+        while (start < line.Length && line[start] == ' ')
+            start++;
+        if (start >= line.Length)
+            return false;
+        if (line[start] != '"')
+        {
+            var end = line.IndexOf(' ', start);
+            if (end < 0)
+                end = line.Length;
+            token = line[start..end];
+            next = end;
+            return token.Length > 0;
+        }
+
+        var builder = new StringBuilder();
+        for (var i = start + 1; i < line.Length; i++)
+        {
+            if (line[i] == '\\' && i + 1 < line.Length)
+            {
+                builder.Append(line[i]);
+                builder.Append(line[i + 1]);
+                i++;
+                continue;
+            }
+
+            if (line[i] == '"')
+            {
+                token = builder.ToString();
+                next = i + 1;
+                return true;
+            }
+
+            builder.Append(line[i]);
+        }
+
+        return false;
+    }
+
+    private static string DecodeGitPath(string path)
+    {
+        if (path.IndexOf('\\') < 0)
+            return path;
+        var bytes = new List<byte>(path.Length);
+        for (var i = 0; i < path.Length; i++)
+        {
+            if (path[i] != '\\' || i + 1 >= path.Length)
+            {
+                AppendUtf8(bytes, path[i]);
+                continue;
+            }
+
+            var next = path[++i];
+            if (next is >= '0' and <= '7')
+            {
+                var value = next - '0';
+                var digits = 1;
+                while (digits < 3 && i + 1 < path.Length && path[i + 1] is >= '0' and <= '7')
+                {
+                    value = (value << 3) + (path[++i] - '0');
+                    digits++;
+                }
+
+                bytes.Add((byte)value);
+                continue;
+            }
+
+            var mapped = next switch
+            {
+                'n' => (byte)'\n',
+                't' => (byte)'\t',
+                'b' => (byte)'\b',
+                'a' => (byte)'\a',
+                'v' => (byte)'\v',
+                'f' => (byte)'\f',
+                'r' => (byte)'\r',
+                _ => (byte)next,
+            };
+            bytes.Add(mapped);
+        }
+
+        return Encoding.UTF8.GetString(bytes.ToArray());
+    }
+
+    private static void AppendUtf8(List<byte> bytes, char value)
+    {
+        if (value < 128)
+        {
+            bytes.Add((byte)value);
+            return;
+        }
+
+        bytes.AddRange(Encoding.UTF8.GetBytes(value.ToString()));
     }
 
     private static bool ContainsLine(string text, string prefix) =>
