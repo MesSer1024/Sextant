@@ -1,3 +1,5 @@
+using Sextant;
+
 namespace Sextant.Git.Tests;
 
 public class CoreTests
@@ -204,6 +206,11 @@ public class CoreTests
                 LocationsWidth = 200,
                 GraphWidth = 480,
                 FilesHeight = 160,
+                WindowWidth = 1440,
+                WindowHeight = 900,
+                WindowX = 40,
+                WindowY = 20,
+                WindowMaximized = true,
             };
             store.SaveWorkspace(state);
             store.SaveSettings(new AppSettings { GitExecutable = @"C:\git\git.exe", ReopenTabs = false });
@@ -211,10 +218,15 @@ public class CoreTests
             var loaded = store.LoadWorkspace();
             var settings = store.LoadSettings();
             Assert.Equal(@"C:\repos\sextant", loaded.ActiveTab);
-            Assert.Equal(2, loaded.OpenTabs.Count);
+            Assert.Equal([@"C:\repos\sextant", @"C:\repos\other"], loaded.OpenTabs);
             Assert.Equal(200, loaded.LocationsWidth);
             Assert.Equal(480, loaded.GraphWidth);
             Assert.Equal(160, loaded.FilesHeight);
+            Assert.Equal(1440, loaded.WindowWidth);
+            Assert.Equal(900, loaded.WindowHeight);
+            Assert.Equal(40, loaded.WindowX);
+            Assert.Equal(20, loaded.WindowY);
+            Assert.True(loaded.WindowMaximized);
             Assert.Equal(@"C:\git\git.exe", settings.GitExecutable);
             Assert.False(settings.ReopenTabs);
 
@@ -229,12 +241,78 @@ public class CoreTests
             var legacy = store.LoadWorkspace();
             Assert.Equal(@"C:\repos\kept", legacy.ActiveTab);
             Assert.Equal([@"C:\repos\kept"], legacy.OpenTabs);
+            Assert.Equal(0, legacy.WindowWidth);
+            Assert.Equal(0, legacy.WindowHeight);
+            Assert.Null(legacy.WindowX);
+            Assert.Null(legacy.WindowY);
+            Assert.False(legacy.WindowMaximized);
+            var migrated = RepoLayouts.Resolve(legacy, @"C:\repos\kept");
+            Assert.Equal(220, migrated.LocationsWidth);
+            Assert.Equal(520, migrated.GraphWidth);
+            Assert.Equal(180, migrated.FilesHeight);
         }
         finally
         {
             if (Directory.Exists(directory))
                 Directory.Delete(directory, recursive: true);
         }
+    }
+
+    [Fact]
+    public void Pane_sizes_are_stored_per_repository()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "sextant-ws-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var store = new WorkspaceStore(directory);
+            var state = new WorkspaceState
+            {
+                LocationsWidth = 200,
+                GraphWidth = 480,
+                FilesHeight = 160,
+            };
+            var untouched = RepoLayouts.Resolve(state, @"C:\repos\new");
+            Assert.Equal(200, untouched.LocationsWidth);
+            Assert.Equal(480, untouched.GraphWidth);
+            Assert.Equal(160, untouched.FilesHeight);
+
+            RepoLayouts.Remember(state, @"C:\repos\sextant", 310, 430, 190);
+            RepoLayouts.Remember(state, @"C:\repos\other", 180, 640, 220);
+            store.SaveWorkspace(state);
+            var loaded = store.LoadWorkspace();
+            var sextant = RepoLayouts.Resolve(loaded, @"C:\repos\sextant");
+            var other = RepoLayouts.Resolve(loaded, @"C:\repos\other");
+            var third = RepoLayouts.Resolve(loaded, @"C:\repos\third");
+            Assert.Equal(310, sextant.LocationsWidth);
+            Assert.Equal(430, sextant.GraphWidth);
+            Assert.Equal(190, sextant.FilesHeight);
+            Assert.Equal(180, other.LocationsWidth);
+            Assert.Equal(640, other.GraphWidth);
+            Assert.Equal(220, other.FilesHeight);
+            Assert.Equal(200, third.LocationsWidth);
+            Assert.Equal(480, third.GraphWidth);
+            Assert.Equal(160, third.FilesHeight);
+            if (OperatingSystem.IsWindows())
+                Assert.Equal(310, RepoLayouts.Resolve(loaded, @"c:\repos\sextant").LocationsWidth);
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+                Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Digit_zero_selects_the_tenth_tab_and_nine_selects_the_ninth()
+    {
+        Assert.Equal(0, TabShortcut.IndexFromDigit(1));
+        Assert.Equal(8, TabShortcut.IndexFromDigit(9));
+        Assert.Equal(9, TabShortcut.IndexFromDigit(0));
+        Assert.Null(TabShortcut.IndexFromDigit(11));
+        Assert.Null(TabShortcut.IndexFromDigit(-1));
+        Assert.Equal(OperatingSystem.IsMacOS() ? "⌘1" : "Ctrl+1", TabShortcut.Hint(0));
+        Assert.Equal(OperatingSystem.IsMacOS() ? "⌘0" : "Ctrl+0", TabShortcut.Hint(9));
+        Assert.Null(TabShortcut.Hint(10));
     }
 
     [Fact]

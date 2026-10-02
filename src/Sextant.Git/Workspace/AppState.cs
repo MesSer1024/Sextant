@@ -14,6 +14,113 @@ public sealed class WorkspaceState
     public double GraphWidth { get; set; } = 520;
 
     public double FilesHeight { get; set; } = 180;
+
+    public Dictionary<string, RepoLayout> RepoLayouts { get; set; } = [];
+
+    public double WindowWidth { get; set; }
+
+    public double WindowHeight { get; set; }
+
+    public int? WindowX { get; set; }
+
+    public int? WindowY { get; set; }
+
+    public bool WindowMaximized { get; set; }
+}
+
+public sealed class RepoLayout
+{
+    public double LocationsWidth { get; set; } = 220;
+
+    public double GraphWidth { get; set; } = 520;
+
+    public double FilesHeight { get; set; } = 180;
+}
+
+public static class RepoLayouts
+{
+    public static RepoLayout Resolve(WorkspaceState state, string path)
+    {
+        var own = TryGet(state, path);
+        return own ?? FromLegacy(state);
+    }
+
+    public static RepoLayout? TryGet(WorkspaceState state, string path)
+    {
+        foreach (var pair in state.RepoLayouts)
+        {
+            if (pair.Value is null || string.IsNullOrWhiteSpace(pair.Key))
+                continue;
+            if (!Same(pair.Key, path))
+                continue;
+            return new RepoLayout
+            {
+                LocationsWidth = pair.Value.LocationsWidth,
+                GraphWidth = pair.Value.GraphWidth,
+                FilesHeight = pair.Value.FilesHeight,
+            };
+        }
+
+        return null;
+    }
+
+    public static void Remember(WorkspaceState state, string path, double locations, double graph, double files)
+    {
+        var match = FindKey(state, path);
+        if (match is not null && !string.Equals(match, path, StringComparison.Ordinal))
+            state.RepoLayouts.Remove(match);
+        state.RepoLayouts[path] = new RepoLayout
+        {
+            LocationsWidth = locations,
+            GraphWidth = graph,
+            FilesHeight = files,
+        };
+    }
+
+    public static void Forget(WorkspaceState state, string path)
+    {
+        var match = FindKey(state, path);
+        if (match is not null)
+            state.RepoLayouts.Remove(match);
+    }
+
+    private static string? FindKey(WorkspaceState state, string path)
+    {
+        foreach (var key in state.RepoLayouts.Keys)
+        {
+            if (!string.IsNullOrWhiteSpace(key) && Same(key, path))
+                return key;
+        }
+
+        return null;
+    }
+
+    private static bool Same(string left, string right)
+    {
+        try
+        {
+            return RepoPath.Same(left, right);
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+        catch (NotSupportedException)
+        {
+            return false;
+        }
+    }
+
+    private static RepoLayout FromLegacy(WorkspaceState state) => new()
+    {
+        LocationsWidth = state.LocationsWidth >= 140 ? state.LocationsWidth : 220,
+        GraphWidth = state.GraphWidth >= 240 ? state.GraphWidth : 520,
+        FilesHeight = state.FilesHeight >= 80 ? state.FilesHeight : 180,
+    };
 }
 
 public sealed class AppSettings

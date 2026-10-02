@@ -31,14 +31,10 @@ public partial class RepositoryView : UserControl
         if (DataContext is RepositoryViewModel vm && !_widthsApplied)
         {
             _widthsApplied = true;
-            if (vm.LocationsWidth >= 140)
-                LocationsColumn.Width = new GridLength(vm.LocationsWidth);
-            if (vm.GraphWidth >= 240)
-                GraphColumn.Width = new GridLength(vm.GraphWidth);
-            if (vm.FilesHeight >= 80)
-                FilesRow.Height = new GridLength(vm.FilesHeight);
+            ApplyWidths(vm);
         }
 
+        WatchPanes();
         AttachGraphScroll();
         GraphList.TemplateApplied += (_, _) => AttachGraphScroll();
         HookFileScroll();
@@ -58,6 +54,9 @@ public partial class RepositoryView : UserControl
 
     protected override void OnUnloaded(RoutedEventArgs e)
     {
+        if (_widthsApplied)
+            PublishPanes();
+        UnwatchPanes();
         UnhookFileScroll();
         if (_watched is not null)
         {
@@ -183,6 +182,8 @@ public partial class RepositoryView : UserControl
             ApplyCommandLog(vm.CommandLog);
         else if (e.PropertyName == nameof(RepositoryViewModel.CommandsOpen) && vm.CommandsOpen)
             Dispatcher.UIThread.Post(ScrollCommandLogToEnd, DispatcherPriority.Loaded);
+        else if (_widthsApplied && e.PropertyName is nameof(RepositoryViewModel.LocationsWidth) or nameof(RepositoryViewModel.GraphWidth) or nameof(RepositoryViewModel.FilesHeight))
+            ApplyWidths(vm);
     }
 
     private ColumnDefinition LocationsColumn => Columns.ColumnDefinitions[0];
@@ -191,14 +192,87 @@ public partial class RepositoryView : UserControl
 
     private RowDefinition FilesRow => Details.RowDefinitions[2];
 
-    public void ReadWidths(MainViewModel vm)
+    public void ReadWidths()
     {
-        if (LocationsColumn.Width.GridUnitType == GridUnitType.Pixel && LocationsColumn.Width.Value >= 140)
+        if (_applyingWidths || DataContext is not RepositoryViewModel vm)
+            return;
+        var changed = false;
+        if (LocationsColumn.Width.GridUnitType == GridUnitType.Pixel && LocationsColumn.Width.Value >= 140 && vm.LocationsWidth != LocationsColumn.Width.Value)
+        {
             vm.LocationsWidth = LocationsColumn.Width.Value;
-        if (GraphColumn.Width.GridUnitType == GridUnitType.Pixel && GraphColumn.Width.Value >= 240)
+            changed = true;
+        }
+
+        if (GraphColumn.Width.GridUnitType == GridUnitType.Pixel && GraphColumn.Width.Value >= 240 && vm.GraphWidth != GraphColumn.Width.Value)
+        {
             vm.GraphWidth = GraphColumn.Width.Value;
-        if (FilesRow.Height.GridUnitType == GridUnitType.Pixel && FilesRow.Height.Value >= 80)
+            changed = true;
+        }
+
+        if (FilesRow.Height.GridUnitType == GridUnitType.Pixel && FilesRow.Height.Value >= 80 && vm.FilesHeight != FilesRow.Height.Value)
+        {
             vm.FilesHeight = FilesRow.Height.Value;
+            changed = true;
+        }
+
+        if (changed)
+            vm.NotePaneEdit();
+    }
+
+    private bool _applyingWidths;
+
+    private void ApplyWidths(RepositoryViewModel vm)
+    {
+        _applyingWidths = true;
+        try
+        {
+            if (vm.LocationsWidth >= 140)
+                LocationsColumn.Width = new GridLength(vm.LocationsWidth);
+            if (vm.GraphWidth >= 240)
+                GraphColumn.Width = new GridLength(vm.GraphWidth);
+            if (vm.FilesHeight >= 80)
+                FilesRow.Height = new GridLength(vm.FilesHeight);
+        }
+        finally
+        {
+            _applyingWidths = false;
+        }
+    }
+
+    private bool _panesWatched;
+
+    private void WatchPanes()
+    {
+        if (_panesWatched)
+            return;
+        _panesWatched = true;
+        LocationsColumn.PropertyChanged += OnPaneChanged;
+        GraphColumn.PropertyChanged += OnPaneChanged;
+        FilesRow.PropertyChanged += OnPaneChanged;
+    }
+
+    private void UnwatchPanes()
+    {
+        if (!_panesWatched)
+            return;
+        _panesWatched = false;
+        LocationsColumn.PropertyChanged -= OnPaneChanged;
+        GraphColumn.PropertyChanged -= OnPaneChanged;
+        FilesRow.PropertyChanged -= OnPaneChanged;
+    }
+
+    private void OnPaneChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
+    {
+        if (e.Property != ColumnDefinition.WidthProperty && e.Property != RowDefinition.HeightProperty)
+            return;
+        PublishPanes();
+    }
+
+    private void PublishPanes()
+    {
+        if (!_widthsApplied || _applyingWidths)
+            return;
+        ReadWidths();
     }
 
     private void AttachGraphScroll()

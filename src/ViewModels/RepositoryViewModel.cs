@@ -50,11 +50,51 @@ public partial class RepositoryViewModel : ViewModelBase
 
     public string RequestedPath { get; }
 
-    public double LocationsWidth => _host.LocationsWidth;
+    private double _locationsWidth = 220;
 
-    public double GraphWidth => _host.GraphWidth;
+    private double _graphWidth = 520;
 
-    public double FilesHeight => _host.FilesHeight;
+    private double _filesHeight = 180;
+
+    public double LocationsWidth
+    {
+        get => _locationsWidth;
+        set
+        {
+            if (_locationsWidth == value)
+                return;
+            _locationsWidth = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public double GraphWidth
+    {
+        get => _graphWidth;
+        set
+        {
+            if (_graphWidth == value)
+                return;
+            _graphWidth = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public double FilesHeight
+    {
+        get => _filesHeight;
+        set
+        {
+            if (_filesHeight == value)
+                return;
+            _filesHeight = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public bool PanesEdited { get; private set; }
+
+    public void NotePaneEdit() => PanesEdited = true;
 
     public ObservableCollection<GraphRowViewModel> Rows { get; } = [];
 
@@ -70,6 +110,9 @@ public partial class RepositoryViewModel : ViewModelBase
 
     [ObservableProperty]
     public partial string Title { get; set; }
+
+    [ObservableProperty]
+    public partial string? ShortcutHint { get; set; }
 
     [ObservableProperty]
     public partial string? Toplevel { get; set; }

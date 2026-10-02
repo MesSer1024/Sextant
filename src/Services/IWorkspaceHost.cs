@@ -38,12 +38,6 @@ public interface IWorkspaceHost
 
     bool GitReady { get; }
 
-    double LocationsWidth { get; }
-
-    double GraphWidth { get; }
-
-    double FilesHeight { get; }
-
     void Activate(RepositoryViewModel tab);
 
     void Close(RepositoryViewModel tab);

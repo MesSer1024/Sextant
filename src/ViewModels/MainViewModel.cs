@@ -23,9 +23,12 @@ public partial class MainViewModel : ViewModelBase, IWorkspaceHost
         _workspace = workspace;
         _settings = settings;
         Runner = runner;
-        LocationsWidth = workspace.LocationsWidth;
-        GraphWidth = workspace.GraphWidth;
-        FilesHeight = workspace.FilesHeight;
+        WindowWidth = workspace.WindowWidth;
+        WindowHeight = workspace.WindowHeight;
+        WindowX = workspace.WindowX;
+        WindowY = workspace.WindowY;
+        WindowMaximized = workspace.WindowMaximized;
+        Tabs.CollectionChanged += (_, _) => RefreshShortcutHints();
     }
 
     public GitProcessRunner Runner { get; }
@@ -69,11 +72,15 @@ public partial class MainViewModel : ViewModelBase, IWorkspaceHost
     [ObservableProperty]
     public partial PaletteItem? SelectedPalette { get; set; }
 
-    public double LocationsWidth { get; set; }
+    public double WindowWidth { get; set; }
 
-    public double GraphWidth { get; set; }
+    public double WindowHeight { get; set; }
 
-    public double FilesHeight { get; set; }
+    public int? WindowX { get; set; }
+
+    public int? WindowY { get; set; }
+
+    public bool WindowMaximized { get; set; }
 
     public bool CanUseGit => GitReady && !IsBusy;
 
@@ -143,8 +150,19 @@ public partial class MainViewModel : ViewModelBase, IWorkspaceHost
 
     public void NoteLoaded(RepositoryViewModel tab)
     {
-        if (tab.Toplevel is not { Length: > 0 })
+        if (tab.Toplevel is not { Length: > 0 } top)
             return;
+        if (!tab.PanesEdited)
+        {
+            var saved = RepoLayouts.TryGet(_workspace, top);
+            if (saved is not null)
+            {
+                tab.LocationsWidth = saved.LocationsWidth;
+                tab.GraphWidth = saved.GraphWidth;
+                tab.FilesHeight = saved.FilesHeight;
+            }
+        }
+
         if (ActiveTab == tab)
             TitleText = $"Sextant — {tab.Title}";
         Save();
@@ -154,10 +172,44 @@ public partial class MainViewModel : ViewModelBase, IWorkspaceHost
     {
         _workspace.OpenTabs = Tabs.Select(tab => tab.Toplevel ?? tab.RequestedPath).ToList();
         _workspace.ActiveTab = ActiveTab is null ? null : ActiveTab.Toplevel ?? ActiveTab.RequestedPath;
-        _workspace.LocationsWidth = LocationsWidth;
-        _workspace.GraphWidth = GraphWidth;
-        _workspace.FilesHeight = FilesHeight;
+        foreach (var tab in Tabs)
+        {
+            var path = tab.Toplevel ?? tab.RequestedPath;
+            if (string.IsNullOrWhiteSpace(path))
+                continue;
+            RepoLayouts.Remember(_workspace, path, tab.LocationsWidth, tab.GraphWidth, tab.FilesHeight);
+            if (tab.Toplevel is { Length: > 0 } top && !RepoPath.Same(tab.RequestedPath, top))
+                RepoLayouts.Forget(_workspace, tab.RequestedPath);
+        }
+
+        _workspace.WindowWidth = WindowWidth;
+        _workspace.WindowHeight = WindowHeight;
+        _workspace.WindowX = WindowX;
+        _workspace.WindowY = WindowY;
+        _workspace.WindowMaximized = WindowMaximized;
         _store.SaveWorkspace(_workspace);
+    }
+
+    public void MoveTab(RepositoryViewModel tab, int index)
+    {
+        var from = Tabs.IndexOf(tab);
+        if (from < 0 || index < 0 || index >= Tabs.Count || from == index)
+            return;
+        Tabs.Move(from, index);
+    }
+
+    public void ActivateDigit(int digit)
+    {
+        var index = TabShortcut.IndexFromDigit(digit);
+        if (index is not int slot || slot >= Tabs.Count || Tabs[slot] == ActiveTab)
+            return;
+        Activate(Tabs[slot]);
+    }
+
+    private void RefreshShortcutHints()
+    {
+        for (var i = 0; i < Tabs.Count; i++)
+            Tabs[i].ShortcutHint = TabShortcut.Hint(i);
     }
 
     [RelayCommand]
@@ -256,7 +308,7 @@ public partial class MainViewModel : ViewModelBase, IWorkspaceHost
                     continue;
                 if (Tabs.Any(tab => SameTab(tab, path)))
                     continue;
-                Tabs.Add(new RepositoryViewModel(this, path));
+                Tabs.Add(CreateTab(path));
             }
 
             var active = Tabs.FirstOrDefault(tab => _workspace.ActiveTab is not null && SameTab(tab, _workspace.ActiveTab));
@@ -338,7 +390,7 @@ public partial class MainViewModel : ViewModelBase, IWorkspaceHost
             return;
         }
 
-        var tab = new RepositoryViewModel(this, path);
+        var tab = CreateTab(path);
         Tabs.Add(tab);
         Activate(tab);
         await tab.EnsureLoadedAsync();
@@ -451,6 +503,16 @@ public partial class MainViewModel : ViewModelBase, IWorkspaceHost
             GitReady = false;
             SetGitProblem(exception.Message);
         }
+    }
+
+    private RepositoryViewModel CreateTab(string path)
+    {
+        var tab = new RepositoryViewModel(this, path);
+        var layout = RepoLayouts.Resolve(_workspace, path);
+        tab.LocationsWidth = layout.LocationsWidth;
+        tab.GraphWidth = layout.GraphWidth;
+        tab.FilesHeight = layout.FilesHeight;
+        return tab;
     }
 
     private static bool SameTab(RepositoryViewModel tab, string path)
