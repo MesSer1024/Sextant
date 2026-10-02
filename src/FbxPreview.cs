@@ -8,8 +8,8 @@ using SkiaSharp;
 namespace Sextant;
 
 /// <summary>
-/// Draws one fitted still of an FBX file and a short scene summary.
-/// The picture is a clay render from a fixed three-quarter view. Material names are listed, not shaded.
+/// Draws a fitted clay view of an FBX file and a short scene summary.
+/// Material names are listed, not shaded. The same mesh can be drawn again from another angle.
 /// </summary>
 public static class FbxPreview
 {
@@ -17,41 +17,80 @@ public static class FbxPreview
     private const int Height = 360;
     private const int MaxDraw = 200_000;
     private const int MaxNames = 6;
+    public const float MinPitch = -1.45f;
+    public const float MaxPitch = 1.45f;
+
+    /// <summary>Three-quarter view used for the first picture. Yaw is around Y, pitch rises toward +Y.</summary>
+    public const float DefaultYaw = MathF.PI / 4f;
+
+    public const float DefaultZoom = 1f;
+
+    public static readonly float DefaultPitch = MathF.Atan2(0.8f, MathF.Sqrt(2f));
 
     public readonly record struct FbxStill(byte[]? Png, string Summary, string Error);
 
     public static FbxStill Draw(byte[]? data)
     {
+        var orbit = Load(data);
+        if (!orbit.CanTurn)
+            return new FbxStill(null, orbit.Summary, orbit.Error);
+        var png = orbit.Render(DefaultYaw, DefaultPitch, DefaultZoom);
+        return png is null
+            ? new FbxStill(null, orbit.Summary, "This FBX has no area to draw.")
+            : new FbxStill(png, orbit.Summary, "");
+    }
+
+    public static Orbit Load(byte[]? data)
+    {
         if (data is null || data.Length == 0)
-            return new FbxStill(null, "", "This FBX could not be read.");
+            return new Orbit([], "", "This FBX could not be read.");
         try
         {
             using var context = new AssimpContext();
-            Scene scene;
+            Scene imported;
             using (var stream = new MemoryStream(data, writable: false))
-                scene = context.ImportFileFromStream(stream, PostProcessSteps.Triangulate, "fbx");
-            if (scene?.RootNode is null)
-                return new FbxStill(null, "", "This FBX could not be read.");
+                imported = context.ImportFileFromStream(stream, PostProcessSteps.Triangulate, "fbx");
+            if (imported?.RootNode is null)
+                return new Orbit([], "", "This FBX could not be read.");
 
-            var model = Collect(scene);
+            var model = Collect(imported);
             var summary = Summarize(model);
             if (model.Drawn.Count == 0)
             {
                 var reason = model.Triangles == 0
                     ? "This FBX has no triangles to draw."
                     : "This FBX has no area to draw.";
-                return new FbxStill(null, summary, reason);
+                return new Orbit([], summary, reason);
             }
 
-            var png = Rasterize(model.Drawn);
-            if (png is null)
-                return new FbxStill(null, summary, "This FBX has no area to draw.");
-            return new FbxStill(png, summary, "");
+            return new Orbit(model.Drawn, summary, "");
         }
         catch (Exception exception)
         {
-            return new FbxStill(null, "", Clean(exception.Message));
+            return new Orbit([], "", Clean(exception.Message));
         }
+    }
+
+    /// <summary>Triangles kept so a preview can be drawn again from a dragged angle. Assimp is not kept.</summary>
+    public sealed class Orbit
+    {
+        private readonly List<Tri> _drawn;
+
+        internal Orbit(List<Tri> drawn, string summary, string error)
+        {
+            _drawn = drawn;
+            Summary = summary;
+            Error = error;
+        }
+
+        public string Summary { get; }
+
+        public string Error { get; }
+
+        public bool CanTurn => _drawn.Count > 0 && Error.Length == 0;
+
+        public byte[]? Render(float yaw, float pitch, float zoom) =>
+            _drawn.Count == 0 ? null : Rasterize(_drawn, yaw, pitch, zoom);
     }
 
     private sealed class Model
@@ -73,7 +112,7 @@ public static class FbxPreview
         public List<Tri> Drawn { get; } = [];
     }
 
-    private readonly record struct Tri(Vector3 A, Vector3 B, Vector3 C, Vector3 Normal);
+    internal readonly record struct Tri(Vector3 A, Vector3 B, Vector3 C, Vector3 Normal);
 
     private static Model Collect(Scene scene)
     {
@@ -234,7 +273,7 @@ public static class FbxPreview
         return trimmed.Length <= 40 ? trimmed : trimmed[..40];
     }
 
-    private static byte[]? Rasterize(List<Tri> triangles)
+    private static byte[]? Rasterize(List<Tri> triangles, float yaw, float pitch, float zoom)
     {
         var min = new Vector3(float.PositiveInfinity);
         var max = new Vector3(float.NegativeInfinity);
@@ -250,8 +289,12 @@ public static class FbxPreview
         if (extent < 1e-6f || float.IsInfinity(extent))
             return null;
 
+        pitch = Math.Clamp(pitch, MinPitch, MaxPitch);
+        zoom = Math.Clamp(zoom, 0.25f, 8f);
+        var horizontal = MathF.Cos(pitch);
+        var direction = Vector3.Normalize(new Vector3(MathF.Cos(yaw) * horizontal, MathF.Sin(pitch), MathF.Sin(yaw) * horizontal));
         var center = (min + max) * 0.5f;
-        var eye = center + Vector3.Normalize(new Vector3(1f, 0.8f, 1f)) * (extent * 3f);
+        var eye = center + direction * (extent * 3f);
         var view = Matrix4x4.CreateLookAt(eye, center, Vector3.UnitY);
         var minX = float.PositiveInfinity;
         var minY = float.PositiveInfinity;
@@ -274,7 +317,7 @@ public static class FbxPreview
         var spanY = maxY - minY;
         if (spanX < 1e-6f || spanY < 1e-6f)
             return null;
-        var scale = MathF.Min(Width * 0.84f / spanX, Height * 0.84f / spanY);
+        var scale = MathF.Min(Width * 0.84f / spanX, Height * 0.84f / spanY) * zoom;
         var midX = (minX + maxX) * 0.5f;
         var midY = (minY + maxY) * 0.5f;
         var light = Vector3.Normalize(eye - center);

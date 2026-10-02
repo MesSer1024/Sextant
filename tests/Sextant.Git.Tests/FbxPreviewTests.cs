@@ -52,6 +52,29 @@ public class FbxPreviewTests
     }
 
     [Fact]
+    public void Turning_and_zooming_change_the_still_and_the_home_view_matches_draw()
+    {
+        var bytes = File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "Fixtures", "box.fbx"));
+        var orbit = FbxPreview.Load(bytes);
+        Assert.True(orbit.CanTurn);
+        var home = orbit.Render(FbxPreview.DefaultYaw, FbxPreview.DefaultPitch, FbxPreview.DefaultZoom);
+        var drawn = FbxPreview.Draw(bytes);
+        Assert.NotNull(home);
+        Assert.Equal(drawn.Png, home);
+        var turned = orbit.Render(FbxPreview.DefaultYaw + MathF.PI / 2f, FbxPreview.DefaultPitch, FbxPreview.DefaultZoom);
+        var closer = orbit.Render(FbxPreview.DefaultYaw, FbxPreview.DefaultPitch, 2f);
+        Assert.NotNull(turned);
+        Assert.NotNull(closer);
+        Assert.NotEqual(home, turned);
+        Assert.NotEqual(home, closer);
+        using var bitmap = SKBitmap.Decode(turned);
+        Assert.Equal(480, bitmap.Width);
+        Assert.Equal(360, bitmap.Height);
+        Assert.True(OpaqueCount(bitmap) > 100);
+        Assert.Equal(0, bitmap.GetPixel(2, 2).Alpha);
+    }
+
+    [Fact]
     public void Bytes_that_are_not_an_fbx_explain_the_failure()
     {
         var still = FbxPreview.Draw("not an fbx"u8.ToArray());

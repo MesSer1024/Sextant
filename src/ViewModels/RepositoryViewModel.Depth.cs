@@ -399,6 +399,8 @@ public partial class RepositoryViewModel
         row.After = after;
         row.BeforeDetail = beforePrepared.Summary;
         row.AfterDetail = afterPrepared.Summary;
+        row.BeforeOrbit = beforePrepared.Orbit;
+        row.AfterOrbit = afterPrepared.Orbit;
         row.BeforeNotice = SideNotice(preview.Before, before, preview.BeforeNotice, beforePrepared.Error);
         row.AfterNotice = SideNotice(preview.After, after, preview.AfterNotice, afterPrepared.Error);
         row.IsLoading = false;
@@ -503,7 +505,7 @@ public partial class RepositoryViewModel
         return null;
     }
 
-    private readonly record struct PreparedSide(byte[]? Png, string Summary, string Error);
+    private readonly record struct PreparedSide(byte[]? Png, string Summary, string Error, FbxPreview.Orbit? Orbit = null);
 
     private static bool PreviewPath(string? path) => ImageFiles.IsImagePath(path) || ModelFiles.IsFbxPath(path);
 
@@ -513,8 +515,13 @@ public partial class RepositoryViewModel
             return new PreparedSide(null, "", "");
         if (!ModelFiles.IsFbxPath(path))
             return new PreparedSide(ImageRaster.Prepare(path, bytes), "", "");
-        var still = FbxPreview.Draw(bytes);
-        return new PreparedSide(still.Png, still.Summary, still.Error);
+        var orbit = FbxPreview.Load(bytes);
+        if (!orbit.CanTurn)
+            return new PreparedSide(null, orbit.Summary, orbit.Error);
+        var png = orbit.Render(FbxPreview.DefaultYaw, FbxPreview.DefaultPitch, FbxPreview.DefaultZoom);
+        return png is null
+            ? new PreparedSide(null, orbit.Summary, "This FBX has no area to draw.")
+            : new PreparedSide(png, orbit.Summary, "", orbit);
     }
 
     private static string SideNotice(byte[]? bytes, Bitmap? bitmap, string previewNotice, string decodeError)
@@ -702,6 +709,8 @@ public sealed class ImageCompareRow : ObservableObject
     private string _afterNotice;
     private string _beforeDetail = "";
     private string _afterDetail = "";
+    private FbxPreview.Orbit? _beforeOrbit;
+    private FbxPreview.Orbit? _afterOrbit;
 
     public ImageCompareRow(string path, Bitmap? before, Bitmap? after, string beforeNotice, string afterNotice)
     {
@@ -790,6 +799,36 @@ public sealed class ImageCompareRow : ObservableObject
 
     public bool HasAfterDetail => _afterDetail.Length > 0;
 
+    public FbxPreview.Orbit? BeforeOrbit
+    {
+        get => _beforeOrbit;
+        set
+        {
+            if (ReferenceEquals(_beforeOrbit, value))
+                return;
+            _beforeOrbit = value;
+            OnPropertyChanged(nameof(BeforeOrbit));
+            OnPropertyChanged(nameof(HasBeforeOrbit));
+        }
+    }
+
+    public FbxPreview.Orbit? AfterOrbit
+    {
+        get => _afterOrbit;
+        set
+        {
+            if (ReferenceEquals(_afterOrbit, value))
+                return;
+            _afterOrbit = value;
+            OnPropertyChanged(nameof(AfterOrbit));
+            OnPropertyChanged(nameof(HasAfterOrbit));
+        }
+    }
+
+    public bool HasBeforeOrbit => _beforeOrbit is { CanTurn: true };
+
+    public bool HasAfterOrbit => _afterOrbit is { CanTurn: true };
+
     public bool HasBefore => _before is not null;
 
     public bool HasAfter => _after is not null;
@@ -804,6 +843,8 @@ public sealed class ImageCompareRow : ObservableObject
 
     public void Release()
     {
+        BeforeOrbit = null;
+        AfterOrbit = null;
         Before = null;
         After = null;
     }

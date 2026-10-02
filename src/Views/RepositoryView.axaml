@@ -298,7 +298,8 @@
                                                     <TextBlock DockPanel.Dock="Top" Text="{Binding BeforeCaption}" Opacity="0.72" Margin="0,0,0,8"/>
                                                     <TextBlock DockPanel.Dock="Bottom" Text="{Binding BeforeDetail}" IsVisible="{Binding HasBeforeDetail}" TextWrapping="Wrap" Opacity="0.75" Margin="0,8,0,0"/>
                                                     <TextBlock Text="{Binding BeforeNotice}" IsVisible="{Binding ShowBeforeNotice}" TextWrapping="Wrap" VerticalAlignment="Center" Opacity="0.75"/>
-                                                    <Image Source="{Binding Before}" Stretch="Uniform" MaxHeight="420" HorizontalAlignment="Center" VerticalAlignment="Center" IsVisible="{Binding HasBefore}"/>
+                                                    <controls:FbxOrbitView Source="{Binding Before}" Orbit="{Binding BeforeOrbit}" IsHitTestVisible="{Binding HasBeforeOrbit}"
+                                                                           MaxHeight="420" HorizontalAlignment="Center" VerticalAlignment="Center" IsVisible="{Binding HasBefore}"/>
                                                 </DockPanel>
                                             </Border>
                                             <Border Grid.Column="2" Padding="8" MinHeight="280" Background="#1A000000" BorderThickness="1"
@@ -307,7 +308,8 @@
                                                     <TextBlock DockPanel.Dock="Top" Text="{Binding AfterCaption}" Opacity="0.72" Margin="0,0,0,8"/>
                                                     <TextBlock DockPanel.Dock="Bottom" Text="{Binding AfterDetail}" IsVisible="{Binding HasAfterDetail}" TextWrapping="Wrap" Opacity="0.75" Margin="0,8,0,0"/>
                                                     <TextBlock Text="{Binding AfterNotice}" IsVisible="{Binding ShowAfterNotice}" TextWrapping="Wrap" VerticalAlignment="Center" Opacity="0.75"/>
-                                                    <Image Source="{Binding After}" Stretch="Uniform" MaxHeight="420" HorizontalAlignment="Center" VerticalAlignment="Center" IsVisible="{Binding HasAfter}"/>
+                                                    <controls:FbxOrbitView Source="{Binding After}" Orbit="{Binding AfterOrbit}" IsHitTestVisible="{Binding HasAfterOrbit}"
+                                                                           MaxHeight="420" HorizontalAlignment="Center" VerticalAlignment="Center" IsVisible="{Binding HasAfter}"/>
                                                 </DockPanel>
                                             </Border>
                                             <StackPanel Grid.ColumnSpan="3" IsVisible="{Binding IsLoading}" IsHitTestVisible="False"
